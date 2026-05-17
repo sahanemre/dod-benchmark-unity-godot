@@ -1,0 +1,66 @@
+# ===== Unity =====
+unity/*/[Ll]ibrary/
+unity/*/[Tt]emp/
+unity/*/[Oo]bj/
+unity/*/[Bb]uild/
+unity/*/[Bb]uilds/
+unity/*/[Ll]ogs/
+unity/*/[Uu]ser[Ss]ettings/
+unity/*/[Mm]emoryCaptures/
+unity/*/[Aa]sset[Ss]tore[Tt]ools/
+*.csproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.apk
+*.aab
+*.unitypackage
+
+# Crashlytics
+crashlytics-build.properties
+sysinfo.txt
+
+# ===== Godot =====
+godot/*/.godot/
+godot/*/.import/
+godot/*/export.cfg
+godot/*/export_presets.cfg
+*.translation
+
+# GDExtension build artifacts
+godot/*/bin/*.dll
+godot/*/bin/*.so
+godot/*/bin/*.dylib
+godot/*/bin/*.wasm
+*.o
+*.obj
+
+# ===== IDE =====
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ===== Python =====
+__pycache__/
+*.pyc
+.env
+venv/
+
+# ===== Results (keep CSVs, ignore large files) =====
+results/benchmarks/*.png
+results/benchmarks/*.pdf
+!results/benchmarks/*.csv
