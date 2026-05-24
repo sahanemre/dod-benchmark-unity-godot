@@ -1,0 +1,2 @@
+EntityCount,AvgFrameTime_ms,MinFrameTime_ms,MaxFrameTime_ms,StdDev_ms,AvgFPS,MinFPS,MemoryUsed_MB,TotalFrames,Duration_s
+1000,5,061,3,616,1023,348,22,110,197,6,1,0,8,91,2173,10
