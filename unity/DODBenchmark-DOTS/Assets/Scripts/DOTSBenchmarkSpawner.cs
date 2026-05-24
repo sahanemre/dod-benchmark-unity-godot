@@ -239,13 +239,17 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
             float memoryMB = (memoryDuringTest - memoryAtStart) / (1024f * 1024f);
             if (memoryMB < 0) memoryMB = memoryDuringTest / (1024f * 1024f);
 
-            csvBuilder.AppendLine(
-                $"{entityCounts[currentTestIndex]}," +
-                $"{avg:F3},{min:F3},{max:F3},{stdDev:F3}," +
-                $"{avgFPS:F1},{minFPS:F1}," +
-                $"{memoryMB:F2}," +
-                $"{frameTimes.Count},{testDuration:F0}"
-            );
+            // CSV satiri (InvariantCulture: ondalik ayirici nokta olsun,
+            // aksi halde Turkce locale'de virgul cikar ve CSV sutunlari bozulur)
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            csvBuilder.AppendLine(string.Format(ci,
+                "{0},{1:F3},{2:F3},{3:F3},{4:F3},{5:F1},{6:F1},{7:F2},{8},{9:F0}",
+                entityCounts[currentTestIndex],
+                avg, min, max, stdDev,
+                avgFPS, minFPS,
+                memoryMB,
+                frameTimes.Count, testDuration
+            ));
 
             statusText = $"Tamamlandi: {entityCounts[currentTestIndex]:N0} entity | " +
                          $"Ort: {avg:F2}ms ({avgFPS:F0} FPS) | StdDev: {stdDev:F2}ms | " +
