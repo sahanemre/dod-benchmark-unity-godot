@@ -39,6 +39,12 @@ var _status_text: String = "Hazir. Test secin ve baslatin."
 
 
 func _ready() -> void:
+	# VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme hizina
+	# kilitlenir (orn. tum testler 165 FPS / 6.06ms, StdDev 0) ve gercek is
+	# yuku olculmez. Benchmark icin sart.
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	Engine.max_fps = 0
+
 	var vp_size := get_viewport().get_visible_rect().size
 	_screen_min = Vector2(10.0, 10.0)
 	_screen_max = vp_size - Vector2(10.0, 10.0)

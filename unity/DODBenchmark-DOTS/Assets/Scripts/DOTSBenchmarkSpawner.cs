@@ -44,6 +44,11 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
 
     void Start()
     {
+        // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
+        // hizina kilitlenir ve gercek is yuku olculmez. Benchmark icin sart.
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
         EntityManager entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
 
         Camera cam = Camera.main;
