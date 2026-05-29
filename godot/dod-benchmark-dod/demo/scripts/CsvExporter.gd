@@ -39,7 +39,7 @@ func save(approach_tag: String) -> String:
 	if file:
 		file.store_string(_content)
 		file.close()
-		print("[DOD Benchmark] CSV kaydedildi: ", ProjectSettings.globalize_path(path))
+		print("[DOD Native] CSV kaydedildi: ", ProjectSettings.globalize_path(path))
 	else:
-		push_error("[DOD Benchmark] CSV kaydedilemedi: " + path)
+		push_error("[DOD Native] CSV kaydedilemedi: " + path)
 	return filename

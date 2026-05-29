@@ -1,0 +1,30 @@
+#!/usr/bin/env python
+import os
+
+# godot-cpp build ortamini yukler (platform/arch/target bayraklarini saglar).
+# godot-cpp, bu dosyanin yaninda submodule olarak bulunmali:
+#   git submodule add -b 4.6 https://github.com/godotengine/godot-cpp godot-cpp
+env = SConscript("godot-cpp/SConstruct")
+
+env.Append(CPPPATH=["src/"])
+sources = Glob("src/*.cpp")
+
+libname = "movementdod"
+# Cikti dogrudan Godot projesinin bin/ klasorune yazilir; .gdextension oradan okur.
+bindir = "demo/bin"
+
+if env["platform"] == "macos":
+    library = env.SharedLibrary(
+        "{}/lib{}.{}.{}.framework/{}.{}.{}".format(
+            bindir, libname, env["platform"], env["target"],
+            libname, env["platform"], env["target"]
+        ),
+        source=sources,
+    )
+else:
+    library = env.SharedLibrary(
+        "{}/lib{}{}{}".format(bindir, libname, env["suffix"], env["SHLIBSUFFIX"]),
+        source=sources,
+    )
+
+Default(library)

@@ -17,6 +17,7 @@ var _frame_time_label: Label
 var _entity_count_label: Label
 var _status_label: Label
 var _selected_index: int = 0
+var _interactive: bool = true
 
 
 func setup(entity_counts: Array[int]) -> void:
@@ -25,12 +26,12 @@ func setup(entity_counts: Array[int]) -> void:
 	add_child(panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(340, 0)
+	vbox.custom_minimum_size = Vector2(360, 0)
 	panel.add_child(vbox)
 
 	var title := Label.new()
-	title.text = "DOD Benchmark — Godot DOD"
-	title.add_theme_color_override("font_color", Color.CYAN)
+	title.text = "DOD Benchmark — Godot DOD (native C++)"
+	title.add_theme_color_override("font_color", Color.MEDIUM_PURPLE)
 	vbox.add_child(title)
 
 	vbox.add_child(HSeparator.new())
@@ -44,7 +45,7 @@ func setup(entity_counts: Array[int]) -> void:
 	for i in range(entity_counts.size()):
 		var btn := Button.new()
 		btn.text = str(entity_counts[i] / 1000) + "K"
-		btn.custom_minimum_size = Vector2(55, 30)
+		btn.custom_minimum_size = Vector2(58, 30)
 		var idx := i
 		btn.pressed.connect(func(): _on_select(idx))
 		btn_row.add_child(btn)
@@ -57,13 +58,13 @@ func setup(entity_counts: Array[int]) -> void:
 
 	_start_single_btn = Button.new()
 	_start_single_btn.text = "Tek Test"
-	_start_single_btn.custom_minimum_size = Vector2(155, 32)
+	_start_single_btn.custom_minimum_size = Vector2(165, 32)
 	_start_single_btn.pressed.connect(func(): start_single_pressed.emit())
 	action_row.add_child(_start_single_btn)
 
 	_start_all_btn = Button.new()
 	_start_all_btn.text = "Tum Testler"
-	_start_all_btn.custom_minimum_size = Vector2(155, 32)
+	_start_all_btn.custom_minimum_size = Vector2(165, 32)
 	_start_all_btn.pressed.connect(func(): start_all_pressed.emit())
 	action_row.add_child(_start_all_btn)
 
@@ -86,7 +87,7 @@ func setup(entity_counts: Array[int]) -> void:
 
 	_status_label = Label.new()
 	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_status_label.custom_minimum_size = Vector2(330, 55)
+	_status_label.custom_minimum_size = Vector2(350, 55)
 	vbox.add_child(_status_label)
 
 	_update_selection()
@@ -101,12 +102,24 @@ func _on_select(index: int) -> void:
 func _update_selection() -> void:
 	for i in range(_entity_buttons.size()):
 		if i == _selected_index:
-			_entity_buttons[i].add_theme_color_override("font_color", Color.CYAN)
+			_entity_buttons[i].add_theme_color_override("font_color", Color.MEDIUM_PURPLE)
 		else:
 			_entity_buttons[i].remove_theme_color_override("font_color")
 
 
+## Native eklenti yuklenemediyse paneli kilitler ve sebebi gosterir.
+func set_unavailable(reason: String) -> void:
+	_interactive = false
+	if _start_single_btn: _start_single_btn.disabled = true
+	if _start_all_btn: _start_all_btn.disabled = true
+	for b in _entity_buttons:
+		b.disabled = true
+	set_status(reason)
+
+
 func set_testing(is_testing: bool) -> void:
+	if not _interactive:
+		return
 	_start_single_btn.visible = not is_testing
 	_start_all_btn.visible = not is_testing
 	_testing_label.visible = is_testing
