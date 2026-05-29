@@ -69,9 +69,9 @@ func _ready() -> void:
 		_native_ok = _world != null
 
 	if not _native_ok:
-		_status_text = "HATA: MovementWorld native eklentisi yuklenemedi.\n" + \
-			"GDExtension'i derleyip demo/bin/ icine koyun (bkz. README.md):\n" + \
-			"  scons platform=windows target=template_debug"
+		_status_text = ("HATA: MovementWorld native eklentisi yuklenemedi.\n"
+			+ "GDExtension'i derleyip demo/bin/ icine koyun (bkz. README.md):\n"
+			+ "  scons platform=windows target=template_debug")
 		_hud.set_unavailable(_status_text)
 
 
