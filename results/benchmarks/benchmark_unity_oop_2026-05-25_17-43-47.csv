@@ -1,3 +1,17 @@
+S�tun1;S�tun2;S�tun3;S�tun4;S�tun5;S�tun6;S�tun7;S�tun8;S�tun9;S�tun10
+EntityCount;AvgFrameTime_ms;MinFrameTime_ms;MaxFrameTime_ms;StdDev_ms;AvgFPS;MinFPS;MemoryUsed_MB;TotalFrames;Duration_s
+1000;3.426;3.051;5.225;0.219;291.9;191.4;7.38;2920;10
+5000;8.505;8.052;10.081;0.236;117.6;99.2;2.79;1177;10
+10000;16.675;14.519;1021.916;39.162;60.0;1.0;2.17;660;10
+50000;86.477;69.250;2092.766;178.049;11.6;0.5;5.07;128;10
+100000;229.239;148.859;3666.984;501.580;4.4;0.3;14.03;48;10
+;;;;;;;;;
+EntityCount;AvgFrameTime_ms;MinFrameTime_ms;MaxFrameTime_ms;StdDev_ms;AvgFPS;MinFPS;MemoryUsed_MB;TotalFrames;Duration_s
+1000;3.495;2.994;7.084;0.280;286.1;141.2;A�u.43;2862;10
+5000;3.644;3.175;6.331;0.240;274.4;157.9;Haz.84;2745;10
+10000;3.881;3.372;5.515;0.245;257.7;181.3;Haz.36;2578;10
+50000;7.365;5.864;1.403.081;36.124;135.8;0.7;16.79;1494;10
+100000;12.876;9.468;2.172.978;73.919;77.7;0.5;33.63;855;10
 EntityCount,AvgFrameTime_ms,MinFrameTime_ms,MaxFrameTime_ms,StdDev_ms,AvgFPS,MinFPS,MemoryUsed_MB,TotalFrames,Duration_s
 1000,3.426,3.051,5.225,0.219,291.9,191.4,7.38,2920,10
 5000,8.505,8.052,10.081,0.236,117.6,99.2,2.79,1177,10
