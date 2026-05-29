@@ -79,7 +79,7 @@ func _process(delta: float) -> void:
 	_current_frame_time = delta * 1000.0
 	_current_fps = 1.0 / delta if delta > 0.0 else 0.0
 
-	var active := _world.get_count() if _native_ok else 0
+	var active: int = _world.get_count() if _native_ok else 0
 	_hud.update_metrics(_current_fps, _current_frame_time, active)
 	_hud.set_status(_status_text)
 
