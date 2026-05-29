@@ -43,6 +43,7 @@ godot/*/bin/*.dylib
 godot/*/bin/*.wasm
 *.o
 *.obj
+!godot/dod-benchmark-dod/godot-cpp
 
 # ===== IDE =====
 .vs/
