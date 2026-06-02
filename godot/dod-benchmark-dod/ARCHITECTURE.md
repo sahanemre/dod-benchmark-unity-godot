@@ -3,16 +3,17 @@
 ## İçindekiler
 
 1. [Genel Bakış ve Motivasyon](#1-genel-bakış-ve-motivasyon)
-2. [Godot OOP ile Karşılaştırma](#2-godot-oop-ile-karşılaştırma)
-3. [Unity DOTS ile Karşılaştırma](#3-unity-dots-ile-karşılaştırma)
-4. [Mimari Kararlar ve Gerekçeleri](#4-mimari-kararlar-ve-gerekçeleri)
-5. [Teknik Bileşenler ve Sorumlulukları](#5-teknik-bileşenler-ve-sorumlulukları)
-6. [Veri Modeli: SoA (Struct of Arrays)](#6-veri-modeli-soa-struct-of-arrays)
-7. [Hareket Sistemi: Hot Loop Analizi](#7-hareket-sistemi-hot-loop-analizi)
-8. [Render Katmanı: MultiMesh Hybrid Yaklaşım](#8-render-katmanı-multimesh-hybrid-yaklaşım)
-9. [GDExtension Altyapısı](#9-gdextension-altyapısı)
-10. [Benchmark Metodolojisi](#10-benchmark-metodolojisi)
-11. [Bilinen Sınırlamalar ve Araştırma Notları](#11-bilinen-sınırlamalar-ve-araştırma-notları)
+2. [Tez Araştırma Tasarımı ve Karşılaştırma Matrisi](#2-tez-araştırma-tasarımı-ve-karşılaştırma-matrisi)
+3. [Godot OOP ile Karşılaştırma](#3-godot-oop-ile-karşılaştırma)
+4. [Unity DOTS ile Karşılaştırma](#4-unity-dots-ile-karşılaştırma)
+5. [Mimari Kararlar ve Gerekçeleri](#5-mimari-kararlar-ve-gerekçeleri)
+6. [Teknik Bileşenler ve Sorumlulukları](#6-teknik-bileşenler-ve-sorumlulukları)
+7. [Veri Modeli: SoA (Struct of Arrays)](#7-veri-modeli-soa-struct-of-arrays)
+8. [Hareket Sistemi: Hot Loop Analizi](#8-hareket-sistemi-hot-loop-analizi)
+9. [Render Katmanı: MultiMesh Hybrid Yaklaşım](#9-render-katmanı-multimesh-hybrid-yaklaşım)
+10. [GDExtension Altyapısı](#10-gdextension-altyapısı)
+11. [Benchmark Metodolojisi](#11-benchmark-metodolojisi)
+12. [Bilinen Sınırlamalar ve Araştırma Notları](#12-bilinen-sınırlamalar-ve-araştırma-notları)
 
 ---
 
@@ -35,7 +36,63 @@ Her test koşusunda:
 
 ---
 
-## 2. Godot OOP ile Karşılaştırma
+## 2. Tez Araştırma Tasarımı ve Karşılaştırma Matrisi
+
+Bu çalışma dört farklı implementasyon üretir ve bunlar arasında üç eksen boyunca karşılaştırma yapar.
+
+### Dört Implementasyon
+
+| Proje | Veri Düzeni | Hareket | Render | Draw Call |
+|---|---|---|---|---|
+| **Unity OOP** | AoS (her GameObject ayrı) | N × `Update()` (C#) | N × MeshRenderer | ~N |
+| **Unity DOTS** | SoA (ECS chunk, Burst) | Tek `ISystem` döngüsü | GPU instancing (Hybrid Renderer) | **1** |
+| **Godot OOP** | AoS (her Node2D ayrı) | N × `_process()` (GDScript) | N × `_draw()` (CanvasItem) | ~N |
+| **Godot DOD** | SoA (`std::vector`, C++) | Tek `update()` döngüsü (C++) | GPU instancing (MultiMesh) | **1** |
+
+### Üç Karşılaştırma Ekseni
+
+```
+              OOP                        DOD
+         ┌───────────────┐         ┌───────────────┐
+Unity    │  Unity OOP    │ ──────> │  Unity DOTS   │
+         └───────────────┘         └───────────────┘
+               │                         │
+               │ Platform farkı          │ Platform farkı
+               ↓                         ↓
+         ┌───────────────┐         ┌───────────────┐
+Godot    │  Godot OOP    │ ──────> │  Godot DOD    │
+         └───────────────┘         └───────────────┘
+              Paradigma farkı →
+```
+
+**Eksen 1 — Paradigma farkı (yatay):**
+- Unity OOP vs Unity DOTS: Aynı platformda OOP→DOD geçişinin etkisi
+- Godot OOP vs Godot DOD: Aynı platformda OOP→DOD geçişinin etkisi
+- Beklenti: Her iki platformda da entity sayısı arttıkça DOD belirgin kazanç sağlar
+
+**Eksen 2 — Platform farkı, OOP seviyesinde (sol dikey):**
+- Unity OOP vs Godot OOP: Aynı paradigma, farklı motor
+- Beklenti: C#/.NET vs GDScript dil farkı; Unity'nin sahne grafı optimizasyonları
+
+**Eksen 3 — Platform farkı, DOD seviyesinde (sağ dikey):**
+- Unity DOTS vs Godot DOD: Her iki taraf da GPU instancing + SoA kullanır
+- Fark kaynakları: Burst Compiler vs standart C++, ECS chunk belleği vs `std::vector`, motor entegrasyonu derinliği
+- Bu eksen, "motor sağlanan DOD" ile "sıfırdan uygulanan DOD" arasındaki farkı ölçer
+
+### Neden Bu Karşılaştırma Anlamlı?
+
+Unity DOTS ile Godot DOD'un render tarafı kasıtlı olarak eşitlenmiştir: her ikisi de **GPU instancing** kullanır (Unity: Hybrid Renderer/GPU Resident Drawer, Godot: `MultiMeshInstance2D`). Bu sayede render maliyeti kontrol altına alınır; gözlemlenen performans farkları ağırlıklı olarak şu faktörlere atfedilebilir:
+
+1. **Derleyici farkı:** Burst (LLVM + garantili SIMD) vs MSVC/Clang (olasılıksal auto-vectorization)
+2. **Bellek düzeni farkı:** ECS chunk (16 KB arketip blokları) vs `std::vector` (tek bitişik heap bloğu)
+3. **Motor entegrasyonu:** DOTS tam entegre, Godot DOD GDExtension köprüsü üzerinden
+
+> **Tasarım kararı — Neden Node2D+Sprite değil?**
+> Araştırma sürecinde Godot DOD için Node2D+Sprite kullanımı değerlendirildi. Bu yaklaşım reddedildi çünkü: (a) N adet Node2D nesnesi oluşturmak DOD'un önlemeye çalıştığı nesne overhead'ini tekrar yaratır, (b) Unity DOTS GPU instancing kullanırken N draw call üretmek platformlar arası render maliyetlerini eşitsiz kılar, (c) paradigma farkının render tarafı izole edilemez. Detaylı gerekçe için bkz. [Bölüm 5, Karar 4](#karar-4-render-yaklaşımı--neden-node2dsprite-değil).
+
+---
+
+## 3. Godot OOP ile Karşılaştırma
 
 ### OOP Mimarisi (godot/dod-benchmark-oop)
 
@@ -114,7 +171,7 @@ void MovementWorld::update(double delta, Vector2 screen_min, Vector2 screen_max)
 
 ---
 
-## 3. Unity DOTS ile Karşılaştırma
+## 4. Unity DOTS ile Karşılaştırma
 
 ### Unity DOTS Mimarisi (unity/DODBenchmark-DOTS)
 
@@ -142,12 +199,17 @@ public partial struct MovementSystem : ISystem {
 
 ### Unity DOTS vs Godot DOD: Benzerlikler
 
+Her iki yaklaşım da aynı DOD ilkelerini paylaşır ve render tarafı kasıtlı olarak eşitlenmiştir:
+
 | Özellik | Unity DOTS | Godot DOD (native) |
 |---|---|---|
 | Veri düzeni | SoA (ECS chunk'ları) | SoA (std::vector dizileri) |
-| Hareket döngüsü | Tek sistem döngüsü | Tek C++ döngüsü |
-| Render | RenderMeshUtility + GPU instancing | MultiMesh + GPU instancing |
+| Hareket döngüsü | Tek `ISystem` döngüsü | Tek C++ döngüsü |
+| Render | GPU Resident Drawer / Hybrid Renderer (GPU instancing) | `MultiMeshInstance2D` (GPU instancing) |
+| Draw call sayısı | **1** (tüm entity'ler) | **1** (tüm entity'ler) |
 | Node/GameObject başına maliyet | Yok (saf struct) | Yok (dizi indeksi) |
+
+> Render tarafının eşitlenmesi araştırma tasarımının kritik bir parçasıdır. Her iki platform da GPU instancing kullandığından, ölçülen frame time farkları render'dan değil CPU tarafındaki hesaplama verimliliğinden kaynaklanır. Bu sayede Burst Compiler vs C++ ve ECS chunk belleği vs `std::vector` SoA gibi faktörler izole edilebilir.
 
 ### Unity DOTS vs Godot DOD: Kritik Farklar
 
@@ -173,7 +235,7 @@ Unity DOTS, Unity editörüyle entegre gelir; paket yöneticisinden `com.unity.e
 
 ---
 
-## 4. Mimari Kararlar ve Gerekçeleri
+## 5. Mimari Kararlar ve Gerekçeleri
 
 ### Karar 1: GDScript DOD yerine C++ GDExtension
 
@@ -209,9 +271,26 @@ std::vector<float> vel_x;  // sadece x hızları
 ```
 Döngü `pos_x[i]` ve `vel_x[i]`'ye eriştiğinde, her iki dizi de ardışık olduğundan CPU prefetcher (ön yükleyici) sonraki elemanları önbelleğe önceden yükler. 100.000 float için `pos_x` dizisi 400 KB'dır; L2 önbelleği (genellikle 256 KB–4 MB) bu dizi için optimize biçimde çalışır.
 
+### Karar 4: Render Yaklaşımı — Neden Node2D+Sprite Değil?
+
+**Değerlendirilen alternatif:** Her entity için bir `Node2D + Sprite2D` nesnesi oluşturmak — OOP yaklaşımıyla tamamen aynı Node mimarisi, yalnızca hareket mantığı C++ tarafına taşınmış hâlde.
+
+**Neden reddedildi:**
+
+1. **DOD tanımıyla çelişiyor.** N adet `Node2D` nesnesi oluşturmak, DOD'un önlemeye çalıştığı nesne overhead'ini ve heap dağınıklığını aynen yeniden üretir. "C++ hareket hesabı + N Node2D" kombinasyonu ne tam OOP ne tam DOD'dur; hibrit ama tutarsız bir yaklaşımdır.
+
+2. **Unity DOTS ile render eşitsizliği yaratır.** Unity DOTS, tüm entity'leri **GPU Resident Drawer / Hybrid Renderer** üzerinden tek draw call ile çizer. Eğer Godot DOD tarafında N draw call üretilirse, gözlemlenen frame time farkının ne kadarı paradigma farkından, ne kadarı render altyapısı farkından kaynaklandığı ayrıştırılamaz.
+
+3. **Kontrol değişkeni ilkesini ihlal eder.** Araştırma tasarımı, render maliyetini sabit tutup CPU hesaplama farkını izole etmeyi hedefler. Her iki DOD implementasyonu (Unity DOTS ve Godot DOD) da GPU instancing kullandığında render maliyet katkısı kontrol altına alınır; gözlemlenen fark ağırlıklı olarak **Burst Compiler vs C++** ve **ECS chunk belleği vs `std::vector`** arasındaki farkı yansıtır.
+
+**Seçilen yaklaşım — `MultiMeshInstance2D`:**
+- Tüm entity'ler tek bir GPU draw call ile çizilir (render parity ile Unity DOTS)
+- Node sayısı: 2 (BenchmarkOrchestrator + MultiMeshInstance2D) — entity sayısından bağımsız
+- Buffer ataması (`_multimesh.buffer = _world.get_buffer()`) GDScript↔C++ sınırını minimum geçişle aşar
+
 ---
 
-## 5. Teknik Bileşenler ve Sorumlulukları
+## 6. Teknik Bileşenler ve Sorumlulukları
 
 Proje Tek Sorumluluk İlkesi (Single Responsibility Principle) doğrultusunda yapılandırılmıştır. Her sınıf veya modül yalnızca bir işten sorumludur.
 
@@ -248,7 +327,7 @@ godot/dod-benchmark-dod/
 
 ---
 
-## 6. Veri Modeli: SoA (Struct of Arrays)
+## 7. Veri Modeli: SoA (Struct of Arrays)
 
 DOD'un temel iddiası, verinin bellekte nasıl düzenlendiğinin performansı doğrudan etkilediğidir. Bu kavramı somutlaştırmak için iki düzeni karşılaştıralım.
 
@@ -289,7 +368,7 @@ Bir x86-64 CPU'nun cache line boyutu 64 byte'tır; bu 16 adet `float` değerine 
 
 ---
 
-## 7. Hareket Sistemi: Hot Loop Analizi
+## 8. Hareket Sistemi: Hot Loop Analizi
 
 `MovementWorld::update()` fonksiyonu, tüm benchmark süresince her frame çağrılan tek sıcak döngüdür:
 
@@ -330,7 +409,7 @@ void MovementWorld::update(double delta, Vector2 screen_min, Vector2 screen_max)
 
 ---
 
-## 8. Render Katmanı: MultiMesh Hybrid Yaklaşım
+## 9. Render Katmanı: MultiMesh Hybrid Yaklaşım
 
 ### get_buffer() ve MultiMesh Protokolü
 
@@ -382,7 +461,7 @@ _multimesh.buffer = _world.get_buffer()           # buffer ataması
 
 ---
 
-## 9. GDExtension Altyapısı
+## 10. GDExtension Altyapısı
 
 ### Neden GDExtension?
 
@@ -447,7 +526,7 @@ Derleme yapılmadan Godot projesi açılırsa uygulama çökmez. `ClassDB.class_
 
 ---
 
-## 10. Benchmark Metodolojisi
+## 11. Benchmark Metodolojisi
 
 ### Ölçüm Parametreleri
 
@@ -477,9 +556,39 @@ AvgFPS,MinFPS,MemoryUsed_MB,TotalFrames,Duration_s
 
 Tüm sayısal değerler locale-bağımsız noktalı ondalık ayırıcı ile yazılır (GDScript `%` operatörü C-locale kullanır).
 
+### VSync Keşfi ve Giderimi
+
+Geliştirme sürecinde 5 farklı entity sayısı için üretilen tüm sonuçların özdeş çıktığı gözlemlendi:
+
+```
+[DOD Native] Tamamlandi: 1.000 entity  | Ort: 6.06ms (165 FPS) | StdDev: 0.00ms
+[DOD Native] Tamamlandi: 5.000 entity  | Ort: 6.06ms (165 FPS) | StdDev: 0.00ms
+[DOD Native] Tamamlandi: 10.000 entity | Ort: 6.06ms (165 FPS) | StdDev: 0.00ms
+[DOD Native] Tamamlandi: 50.000 entity | Ort: 6.06ms (165 FPS) | StdDev: 0.00ms
+[DOD Native] Tamamlandi: 100.000 entity| Ort: 6.06ms (165 FPS) | StdDev: 0.00ms
+```
+
+**Kök neden:** VSync etkin olduğunda Godot, her frame'i monitörün yenileme hızı kadar gecikmeli sunar (165 Hz monitör → frame başına sabit 6.06 ms). Gerçek hesaplama yükünden bağımsız olarak her frame aynı süreyi alır; delta time sabit kalır; standart sapma sıfır olur.
+
+**Giderim:** Tüm dört projede uygulama başlangıcında VSync devre dışı bırakılır ve FPS tavanı kaldırılır:
+
+```gdscript
+# Godot (GDScript)
+DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+Engine.max_fps = 0
+```
+
+```csharp
+// Unity (C#)
+QualitySettings.vSyncCount = 0;
+Application.targetFrameRate = -1;
+```
+
+Bu düzeltme sonrası her entity sayısı için farklı ve mertebe olarak anlamlı frame time değerleri elde edildi; standart sapma da gerçek iş yükü varyansını yansıtır hale geldi.
+
 ---
 
-## 11. Bilinen Sınırlamalar ve Araştırma Notları
+## 12. Bilinen Sınırlamalar ve Araştırma Notları
 
 ### 1. Bellek Ölçümünün Sınırlılığı
 
