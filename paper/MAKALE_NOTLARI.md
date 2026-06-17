@@ -204,6 +204,56 @@ Her iki DOD implementasyonu da GPU instancing ile tek draw call kullanır. Bu sa
 ölçülen frame time farkı render'dan değil, CPU tarafı hesaplama verimliliğinden
 (Burst vs C++, ECS chunk vs `std::vector`) kaynaklanır.
 
+### 4.6b. Cache Miss Ölçüm Protokolü (AMD uProf)
+
+Frame time ve FPS metrikleri DOD'un *sonucunu* gösterir; **L1/L2 cache miss oranı**
+ise DOD'un performans kazancının *donanım düzeyindeki kök nedenini* doğrudan
+ölçer (bkz. Bölüm 3.2 — AoS vs SoA). Bu metrik, motor içi `Performance`/`GC`
+API'leriyle elde edilemez; donanım performans sayaçlarını (Hardware Performance
+Counters) okuyan harici bir profiler gerekir. Bu çalışmada **AMD uProf**
+kullanılmıştır (test donanımı AMD Ryzen 5 5600H, Zen3 mimari).
+
+**Profilleme türü:** Event-Based Sampling (Time-Based Sampling değil — donanım
+sayaçlarını örneklemek için event-based gereklidir).
+
+**İzlenen sayaçlar:**
+- `L1 Data Cache Misses` (DC Miss)
+- `L2 Cache Misses`
+- `Instructions Retired` + `CPU Clocks` (IPC — Instructions Per Cycle —
+  hesaplamak için)
+
+**Hesaplanan metrik:**
+```
+Cache Miss Rate (%) = (L2 Misses / L2 Accesses) × 100
+```
+
+**Protokol:**
+1. Her implementasyon için **ayrı profil oturumu** açılır (uProf "Launch
+   Application" ile `.exe` başlatılır).
+2. Oturum başına **tek bir entity sayısı** test edilir (HUD'dan "Tek Test"); 5
+   entity sayısının verisi karışmaması için "Tüm Testler" modu kullanılmaz.
+3. Uç noktalar (N=1.000 ve N=100.000) zorunlu profillenir; ara noktalar
+   (5K/10K/50K) kaynak elverdiğince eklenir.
+4. Toplam oturum sayısı: 4 implementasyon × ≥2 entity sayısı = ≥8 profil.
+
+**Beklenen bulgu (hipotez):**
+- **OOP (AoS):** Yüksek L2 miss oranı; entity sayısıyla birlikte **artan** miss
+  oranı (her nesne farklı heap adresinde → prefetcher verimsiz).
+- **DOD (SoA):** Düşük ve entity sayısından **bağımsız** miss oranı (ardışık
+  bellek erişimi → prefetcher verimli).
+
+Bu metrik, makalenin "neden DOD daha hızlı?" sorusuna donanım kanıtı sağlar;
+frame time tek başına *sonucu* gösterirken, cache miss oranı *mekanizmayı*
+gösterir.
+
+> **Bilinen risk:** AMD uProf bazı sistemlerde (sürücü imzalama, Secure Boot,
+> .NET bağımlılığı gibi nedenlerle) açılmayabilir. Açılmazsa alternatif olarak
+> Windows Performance Analyzer (WPA, ETW tabanlı) veya Intel VTune (AMD CPU'da
+> sınırlı sayaç desteğiyle) denenebilir. uProf hiç çalıştırılamazsa, cache miss
+> oranı yerine bellek erişim düzeninin **teorik analizi** (Bölüm 3.2'deki cache
+> line hesabı) makalede tek kanıt olarak sunulabilir — bu durumda limitasyon
+> olarak açıkça belirtilmelidir.
+
 ### 4.7. Geçerlilik Tehditleri (Limitations)
 
 1. **Bellek ölçümünün eksikliği:** Godot DOD'da `std::vector` tahsisleri native
