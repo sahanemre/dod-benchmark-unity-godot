@@ -1,7 +1,10 @@
 """
-Benchmark Analysis Script
+Benchmark Analysis Script (IEEE paper-ready, English labels)
 Reads benchmarkresults.xlsx, computes 3-run averages,
 produces comparison table + frame-time and FPS charts.
+
+Style: grayscale-safe (distinct line styles + markers) so figures remain
+legible in black-and-white print, as commonly required by IEEE venues.
 """
 
 import openpyxl
@@ -17,22 +20,31 @@ XLSX = Path(__file__).parent.parent / "results" / "benchmarks" / "benchmarkresul
 OUT  = Path(__file__).parent.parent / "results" / "figures"
 OUT.mkdir(parents=True, exist_ok=True)
 
-# ── 1. veri yukle ──────────────────────────────────────────────────────────────
+# ── 1. load data ────────────────────────────────────────────────────────────
 SHEET_GROUPS = {
     "Unity OOP":  ["unity-oop-1",  "unity-oop-2",  "unity-oop-3"],
     "Unity DOTS": ["unity-dod-1",  "unity-dod-2",  "unity-dod-3"],
-    "Godot OOP":  ["godot-oop-1",  "godot-oop-2"],          # 2 kosuda kaldi
+    "Godot OOP":  ["godot-oop-1",  "godot-oop-2",  "godot-oop-3"],
     "Godot DOD":  ["godot-dod-1",  "godot-dod-2",  "godot-dod-3"],
 }
 
-COLORS = {
-    "Unity OOP":  "#4C72B0",
-    "Unity DOTS": "#55A868",
-    "Godot OOP":  "#C44E52",
-    "Godot DOD":  "#DD8452",
+# Grayscale-safe styling: each series gets a distinct grayscale shade,
+# line style, and marker shape so the figure survives B/W printing.
+STYLE = {
+    "Unity OOP":  dict(color="0.55", linestyle="-",  marker="o"),
+    "Unity DOTS": dict(color="0.35", linestyle="--", marker="s"),
+    "Godot OOP":  dict(color="0.75", linestyle="-.", marker="^"),
+    "Godot DOD":  dict(color="0.05", linestyle=":",  marker="D"),
 }
 
 ENTITY_COUNTS = [1_000, 5_000, 10_000, 50_000, 100_000]
+
+plt.rcParams.update({
+    "font.size": 11,
+    "font.family": "serif",
+    "axes.edgecolor": "black",
+    "axes.linewidth": 0.8,
+})
 
 wb = openpyxl.load_workbook(str(XLSX), data_only=True)
 
@@ -48,7 +60,7 @@ def avg_runs(sheets: list[str], col: str) -> pd.Series:
     frames = [load_sheet(s)[col] for s in sheets]
     return pd.concat(frames, axis=1).mean(axis=1)
 
-# 3-run ortalamalari
+# 3-run averages
 avg = {}
 for label, sheets in SHEET_GROUPS.items():
     avg[label] = {
@@ -58,9 +70,9 @@ for label, sheets in SHEET_GROUPS.items():
         "MemoryUsed_MB":   avg_runs(sheets, "MemoryUsed_MB"),
     }
 
-# ── 2. ozet tablo ──────────────────────────────────────────────────────────────
+# ── 2. summary tables (console) ───────────────────────────────────────────
 print("\n" + "="*80)
-print("ORTALAMA FRAME TIME (ms)  [3-kosuluk ortalama]")
+print("AVERAGE FRAME TIME (ms) — mean of 3 runs")
 print("="*80)
 header = f"{'Entity':>8} | {'Unity OOP':>10} | {'Unity DOTS':>11} | {'Godot OOP':>10} | {'Godot DOD':>10}"
 print(header)
@@ -73,10 +85,8 @@ for ec in ENTITY_COUNTS:
     print(row)
 
 print("\n" + "="*80)
-print("ORTALAMA FPS")
+print("AVERAGE FPS — mean of 3 runs")
 print("="*80)
-print(header.replace("FRAME TIME (ms)","FPS").replace(
-    "Unity OOP","Unity OOP").replace("AvgFrameTime_ms","AvgFPS"))
 print(header)
 print("-"*len(header))
 for ec in ENTITY_COUNTS:
@@ -87,7 +97,7 @@ for ec in ENTITY_COUNTS:
     print(row)
 
 print("\n" + "="*80)
-print("PARADIGMA KAZANIM: DOD/OOP hiz orani  (OOP frame time / DOD frame time)")
+print("SPEEDUP RATIO: OOP frame time / DOD frame time (higher = DOD wins more)")
 print("="*80)
 print(f"{'Entity':>8} | {'Unity DOTS/OOP':>15} | {'Godot DOD/OOP':>14}")
 print("-"*46)
@@ -96,62 +106,53 @@ for ec in ENTITY_COUNTS:
     g = avg["Godot OOP"]["AvgFrameTime_ms"][ec]  / avg["Godot DOD"]["AvgFrameTime_ms"][ec]
     print(f"{ec:>8,} | {u:>14.1f}x | {g:>13.1f}x")
 
-# ── 3. grafik 1: frame time vs entity count (log-log) ─────────────────────────
-fig, axes = plt.subplots(1, 2, figsize=(14, 6))
-fig.suptitle("OOP vs DOD Benchmark — Frame Time & FPS Karşılaştırması",
-             fontsize=14, fontweight="bold", y=1.01)
+# ── 3. Figure 1: frame time & FPS vs entity count (log-log) ──────────────────
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
 ax = axes[0]
 for lbl, data in avg.items():
     y = [data["AvgFrameTime_ms"][ec] for ec in ENTITY_COUNTS]
-    ax.plot(ENTITY_COUNTS, y, marker="o", label=lbl,
-            color=COLORS[lbl], linewidth=2, markersize=6)
+    s = STYLE[lbl]
+    ax.plot(ENTITY_COUNTS, y, label=lbl, linewidth=1.6, markersize=6,
+            markerfacecolor="white", markeredgewidth=1.3, **s)
 
 ax.set_xscale("log")
 ax.set_yscale("log")
-ax.set_xlabel("Entity Sayısı", fontsize=12)
-ax.set_ylabel("Ortalama Frame Time (ms)", fontsize=12)
-ax.set_title("Frame Time (ms) — log-log", fontsize=12)
-ax.xaxis.set_major_formatter(mticker.FuncFormatter(
-    lambda x, _: f"{int(x):,}"))
-ax.yaxis.set_major_formatter(mticker.FuncFormatter(
-    lambda x, _: f"{x:.1f}"))
-ax.grid(True, which="both", alpha=0.3)
-ax.legend(fontsize=11)
+ax.set_xlabel("Entity Count")
+ax.set_ylabel("Average Frame Time (ms)")
+ax.set_title("(a) Frame Time vs. Entity Count")
+ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+ax.grid(True, which="both", alpha=0.25, color="0.7")
+ax.legend(fontsize=9, frameon=True, edgecolor="black")
 
-# referans cizgisi: lineer olcekleme
-x_ref = np.array(ENTITY_COUNTS, dtype=float)
-y_ref_base = avg["Unity OOP"]["AvgFrameTime_ms"][1000]
-y_ref = y_ref_base * (x_ref / 1000)
-ax.plot(ENTITY_COUNTS, y_ref, "k--", alpha=0.3, linewidth=1, label="Lineer ref.")
-
-# ── 4. grafik 2: FPS vs entity count ─────────────────────────────────────────
 ax2 = axes[1]
 for lbl, data in avg.items():
     y = [data["AvgFPS"][ec] for ec in ENTITY_COUNTS]
-    ax2.plot(ENTITY_COUNTS, y, marker="o", label=lbl,
-             color=COLORS[lbl], linewidth=2, markersize=6)
+    s = STYLE[lbl]
+    ax2.plot(ENTITY_COUNTS, y, label=lbl, linewidth=1.6, markersize=6,
+             markerfacecolor="white", markeredgewidth=1.3, **s)
 
 ax2.set_xscale("log")
-ax2.set_xlabel("Entity Sayısı", fontsize=12)
-ax2.set_ylabel("Ortalama FPS", fontsize=12)
-ax2.set_title("FPS — log x", fontsize=12)
-ax2.xaxis.set_major_formatter(mticker.FuncFormatter(
-    lambda x, _: f"{int(x):,}"))
-ax2.axhline(60,  color="gray", linestyle="--", alpha=0.4, linewidth=1)
-ax2.axhline(30,  color="gray", linestyle=":",  alpha=0.4, linewidth=1)
-ax2.text(1100, 62, "60 FPS", fontsize=9, color="gray")
-ax2.text(1100, 32, "30 FPS", fontsize=9, color="gray")
-ax2.grid(True, which="both", alpha=0.3)
-ax2.legend(fontsize=11)
+ax2.set_xlabel("Entity Count")
+ax2.set_ylabel("Average FPS")
+ax2.set_title("(b) FPS vs. Entity Count")
+ax2.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+ax2.axhline(60, color="0.6", linestyle="--", linewidth=0.8)
+ax2.axhline(30, color="0.6", linestyle=":",  linewidth=0.8)
+ax2.text(1100, 65, "60 FPS", fontsize=8, color="0.4")
+ax2.text(1100, 35, "30 FPS", fontsize=8, color="0.4")
+ax2.grid(True, which="both", alpha=0.25, color="0.7")
+ax2.legend(fontsize=9, frameon=True, edgecolor="black")
 
 plt.tight_layout()
 out1 = OUT / "fig1_frametime_fps.png"
-plt.savefig(out1, dpi=150, bbox_inches="tight")
-print(f"\nGrafik kaydedildi: {out1}")
+plt.savefig(out1, dpi=300, bbox_inches="tight")
+plt.savefig(OUT / "fig1_frametime_fps.pdf", bbox_inches="tight")
+print(f"\nSaved: {out1}")
 
-# ── 5. grafik 2: paradigma kazanim bar chart ──────────────────────────────────
-fig2, ax3 = plt.subplots(figsize=(10, 5))
+# ── 4. Figure 2: paradigm speedup bar chart ──────────────────────────────────
+fig2, ax3 = plt.subplots(figsize=(8, 4.5))
 x = np.arange(len(ENTITY_COUNTS))
 width = 0.35
 
@@ -160,71 +161,72 @@ unity_ratios = [avg["Unity OOP"]["AvgFrameTime_ms"][ec] /
 godot_ratios = [avg["Godot OOP"]["AvgFrameTime_ms"][ec] /
                 avg["Godot DOD"]["AvgFrameTime_ms"][ec] for ec in ENTITY_COUNTS]
 
-bars1 = ax3.bar(x - width/2, unity_ratios, width, label="Unity (DOTS/OOP)",
-                color=COLORS["Unity DOTS"], alpha=0.85)
-bars2 = ax3.bar(x + width/2, godot_ratios, width, label="Godot (DOD/OOP)",
-                color=COLORS["Godot DOD"], alpha=0.85)
+bars1 = ax3.bar(x - width/2, unity_ratios, width, label="Unity (DOTS / OOP)",
+                color="0.65", edgecolor="black", linewidth=0.8, hatch="//")
+bars2 = ax3.bar(x + width/2, godot_ratios, width, label="Godot (DOD / OOP)",
+                color="0.15", edgecolor="black", linewidth=0.8, hatch="..")
 
 ax3.axhline(1, color="black", linewidth=0.8, linestyle="--")
-ax3.set_xlabel("Entity Sayısı", fontsize=12)
-ax3.set_ylabel("Hız Oranı (OOP / DOD)  ↑ daha iyi = DOD kazanır", fontsize=11)
-ax3.set_title("DOD Kazanım Oranı — Her Entity Sayısında OOP kaç kat yavaş?", fontsize=12)
+ax3.set_xlabel("Entity Count")
+ax3.set_ylabel("Speedup Ratio (OOP / DOD)\n(higher = larger DOD advantage)")
+ax3.set_title("DOD Speedup over OOP, per Engine")
 ax3.set_xticks(x)
 ax3.set_xticklabels([f"{ec:,}" for ec in ENTITY_COUNTS])
-ax3.legend(fontsize=11)
-ax3.grid(axis="y", alpha=0.3)
+ax3.legend(fontsize=9, frameon=True, edgecolor="black")
+ax3.grid(axis="y", alpha=0.25, color="0.7")
 
 for bar in bars1:
-    ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-             f"{bar.get_height():.1f}x", ha="center", va="bottom", fontsize=9)
+    ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.4,
+             f"{bar.get_height():.1f}x", ha="center", va="bottom", fontsize=8)
 for bar in bars2:
-    ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
-             f"{bar.get_height():.1f}x", ha="center", va="bottom", fontsize=9)
+    ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.4,
+             f"{bar.get_height():.1f}x", ha="center", va="bottom", fontsize=8)
 
 plt.tight_layout()
 out2 = OUT / "fig2_speedup_ratio.png"
-plt.savefig(out2, dpi=150, bbox_inches="tight")
-print(f"Grafik kaydedildi: {out2}")
+plt.savefig(out2, dpi=300, bbox_inches="tight")
+plt.savefig(OUT / "fig2_speedup_ratio.pdf", bbox_inches="tight")
+print(f"Saved: {out2}")
 
-# ── 6. grafik 3: platform karsilastirma (OOP vs OOP, DOD vs DOD) ─────────────
-fig3, axes3 = plt.subplots(1, 2, figsize=(14, 5))
-fig3.suptitle("Platform Karşılaştırması (Unity vs Godot)", fontsize=13, fontweight="bold")
+# ── 5. Figure 3: platform comparison (OOP vs OOP, DOD vs DOD) ────────────────
+fig3, axes3 = plt.subplots(1, 2, figsize=(12, 4.5))
 
-# OOP: Unity vs Godot
 ax_oop = axes3[0]
 for lbl in ["Unity OOP", "Godot OOP"]:
     y = [avg[lbl]["AvgFrameTime_ms"][ec] for ec in ENTITY_COUNTS]
-    ax_oop.plot(ENTITY_COUNTS, y, marker="o", label=lbl,
-                color=COLORS[lbl], linewidth=2, markersize=6)
+    s = STYLE[lbl]
+    ax_oop.plot(ENTITY_COUNTS, y, label=lbl, linewidth=1.6, markersize=6,
+                markerfacecolor="white", markeredgewidth=1.3, **s)
 ax_oop.set_xscale("log")
 ax_oop.set_yscale("log")
-ax_oop.set_xlabel("Entity Sayısı", fontsize=11)
-ax_oop.set_ylabel("Frame Time (ms)", fontsize=11)
-ax_oop.set_title("Eksen 2: Platform Farkı — OOP Seviyesinde\n(C#/.NET vs GDScript)", fontsize=11)
+ax_oop.set_xlabel("Entity Count")
+ax_oop.set_ylabel("Frame Time (ms)")
+ax_oop.set_title("(a) Cross-Engine, OOP Level\n(C#/.NET vs. GDScript)")
 ax_oop.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 ax_oop.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
-ax_oop.grid(True, which="both", alpha=0.3)
-ax_oop.legend(fontsize=11)
+ax_oop.grid(True, which="both", alpha=0.25, color="0.7")
+ax_oop.legend(fontsize=9, frameon=True, edgecolor="black")
 
-# DOD: Unity vs Godot
 ax_dod = axes3[1]
 for lbl in ["Unity DOTS", "Godot DOD"]:
     y = [avg[lbl]["AvgFrameTime_ms"][ec] for ec in ENTITY_COUNTS]
-    ax_dod.plot(ENTITY_COUNTS, y, marker="o", label=lbl,
-                color=COLORS[lbl], linewidth=2, markersize=6)
+    s = STYLE[lbl]
+    ax_dod.plot(ENTITY_COUNTS, y, label=lbl, linewidth=1.6, markersize=6,
+                markerfacecolor="white", markeredgewidth=1.3, **s)
 ax_dod.set_xscale("log")
 ax_dod.set_yscale("log")
-ax_dod.set_xlabel("Entity Sayısı", fontsize=11)
-ax_dod.set_ylabel("Frame Time (ms)", fontsize=11)
-ax_dod.set_title("Eksen 3: Platform Farkı — DOD Seviyesinde\n(Burst+ECS vs C++ SoA)", fontsize=11)
+ax_dod.set_xlabel("Entity Count")
+ax_dod.set_ylabel("Frame Time (ms)")
+ax_dod.set_title("(b) Cross-Engine, DOD Level\n(Burst+ECS vs. C++ SoA)")
 ax_dod.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 ax_dod.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
-ax_dod.grid(True, which="both", alpha=0.3)
-ax_dod.legend(fontsize=11)
+ax_dod.grid(True, which="both", alpha=0.25, color="0.7")
+ax_dod.legend(fontsize=9, frameon=True, edgecolor="black")
 
 plt.tight_layout()
 out3 = OUT / "fig3_platform_comparison.png"
-plt.savefig(out3, dpi=150, bbox_inches="tight")
-print(f"Grafik kaydedildi: {out3}")
+plt.savefig(out3, dpi=300, bbox_inches="tight")
+plt.savefig(OUT / "fig3_platform_comparison.pdf", bbox_inches="tight")
+print(f"Saved: {out3}")
 
-print("\nTamamlandi.")
+print("\nDone.")
