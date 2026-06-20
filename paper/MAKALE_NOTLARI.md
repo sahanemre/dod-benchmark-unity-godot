@@ -246,13 +246,66 @@ Bu metrik, makalenin "neden DOD daha hızlı?" sorusuna donanım kanıtı sağla
 frame time tek başına *sonucu* gösterirken, cache miss oranı *mekanizmayı*
 gösterir.
 
-> **Bilinen risk:** AMD uProf bazı sistemlerde (sürücü imzalama, Secure Boot,
-> .NET bağımlılığı gibi nedenlerle) açılmayabilir. Açılmazsa alternatif olarak
-> Windows Performance Analyzer (WPA, ETW tabanlı) veya Intel VTune (AMD CPU'da
-> sınırlı sayaç desteğiyle) denenebilir. uProf hiç çalıştırılamazsa, cache miss
-> oranı yerine bellek erişim düzeninin **teorik analizi** (Bölüm 3.2'deki cache
-> line hesabı) makalede tek kanıt olarak sunulabilir — bu durumda limitasyon
-> olarak açıkça belirtilmelidir.
+> **Not:** AMD uProf v4.2 ile GUI çökme sorunu çözülmüş ve aşağıdaki 8 oturum
+> başarıyla tamamlanmıştır (bkz. "Ölçüm Sonuçları"). `AMDuProfCLI.exe collect`
+> ile GUI'ye gerek kalmadan profil toplanmış, `AMDuProfCLI.exe report -i
+> <oturum>` ile "10 HOTTEST PROCESSES" bölümünden süreç-düzeyinde toplu
+> (aggregate) metrikler çıkarılmıştır.
+
+**Ölçüm Sonuçları (Gerçek Veri — AMD Ryzen 5 5600H, Zen3, AMD uProf 4.2):**
+
+Ham veri: `results/cache-profiling/cache_miss_results.csv`. Sayaçlar:
+`CYCLES_NOT_IN_HALT`, `RETIRED_INST` (→ IPC), `L1_DC_MISS_RATIO` (uProf'un
+doğrudan verdiği L1 metriği) ve dört adet `L1_DEMAND_DC_REFILLS_*` ham sayacından
+türetilen L2 miss rate:
+
+```
+L2 Miss Rate = (LOCAL_CACHE + EXTERNAL_CACHE_LOCAL + LOCAL_DRAM)
+               / (LOCAL_CACHE + EXTERNAL_CACHE_LOCAL + LOCAL_DRAM + LOCAL_L2)
+```
+
+(LOCAL_L2 = L1 miss'in L2'den karşılanması = "L2 hit"; diğer üçü L2'nin de
+ıskaladığı, L3/harici cache/DRAM'den karşılanan erişimler = "L2 miss".)
+
+| İmplementasyon | N | IPC | L1 DC Miss Ratio | L2 Miss Rate |
+|---|---|---|---|---|
+| Unity OOP   | 1.000   | 0.881 | 5.47% | 48.87% |
+| Unity OOP   | 100.000 | 0.485 | 5.89% | 49.41% |
+| Unity DOTS  | 1.000   | 0.735 | 5.79% | 47.43% |
+| Unity DOTS  | 100.000 | 0.925 | 2.75% | 45.93% |
+| Godot OOP   | 1.000   | 1.596 | 2.42% | 38.93% |
+| Godot OOP   | 100.000 | 1.369 | 2.76% | 29.93% |
+| Godot DOD   | 1.000   | 0.877 | 4.86% | 45.00% |
+| Godot DOD   | 100.000 | 2.010 | 2.81% | 26.42% |
+
+**Yorum:**
+- **Ölçekle birlikte değişim yönü, hipotezi destekliyor:** Her iki DOD/DOTS
+  implementasyonu da N arttıkça IPC'de **iyileşme** ve L2 miss rate'te **düşüş**
+  gösteriyor (DOTS: IPC 0.735→0.925, L2 miss 47.4%→45.9%; Godot DOD: IPC
+  0.877→2.010, L2 miss 45.0%→26.4%). Bu, SoA bellek düzeninin büyük N'de
+  donanım prefetcher'ını daha verimli kullandığını doğrudan gösterir.
+- **Godot DOD @ 100K** tüm 8 oturumun en iyi sonucu: en yüksek IPC (2.01) ve
+  en düşük L2 miss rate (%26.4) — DOD tezinin niceliksel kanıtı.
+- **Godot OOP'ta da L2 miss düşüşü var** (38.9%→29.9%) ama Godot DOD'dan daha
+  az; bu, Godot Node2D'lerin Unity GameObject'lerine göre nispeten daha derli
+  toplu bellek tahsisi yapmasıyla açıklanabilir — yine de AoS/SoA farkı IPC'de
+  açıkça görülüyor (Godot DOD 100K'da Godot OOP'tan ~%47 daha yüksek IPC).
+- **Unity OOP, N ile birlikte kötüleşiyor** (IPC 0.881→0.485, beklenen OOP
+  davranışı: dağınık heap adresleri arttıkça prefetcher verimsizleşiyor).
+  Ancak Unity sonuçları genel olarak daha gürültülü (bkz. aşağıdaki limitasyon
+  notu) — Unity DOTS'un 1K→100K IPC artışı beklenenden düşük kalmış olabilir.
+
+> **Bilinen limitasyon (kullanıcı tarafından doğrulandı):** Unity uygulamaları
+> açılışta birkaç saniye gecikme yaşıyor; `AMDuProfCLI.exe collect` exe'yi
+> başlattığı anda örneklemeye başladığından, her Unity oturumunun başında
+> kaçınılmaz bir "motor başlatma" (workload-dışı) süresi profile karışıyor.
+> Test, pencere göründüğü an başlatılmış ve bitişten 1-2 sn içinde profil
+> durdurulmuş olsa da, bu başlangıç gecikmesi — özellikle kısa 1K oturumlarında
+> — toplam örnekleme süresinin görece daha büyük bir kısmını oluşturuyor. Bu
+> durum **Unity↔Godot arası mutlak IPC/miss-rate karşılaştırmalarını** zayıflatabilir;
+> ancak aynı motor içindeki **OOP vs DOD/DOTS karşılaştırması** büyük ölçüde
+> geçerliliğini korur, çünkü her iki varyant da aynı motor başlatma yükünü
+> paylaşır. Makalede bu sınırlama açıkça belirtilmelidir.
 
 ### 4.7. Geçerlilik Tehditleri (Limitations)
 
