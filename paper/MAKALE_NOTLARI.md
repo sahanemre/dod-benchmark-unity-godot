@@ -250,7 +250,13 @@ gösterir.
 > başarıyla tamamlanmıştır (bkz. "Ölçüm Sonuçları"). `AMDuProfCLI.exe collect`
 > ile GUI'ye gerek kalmadan profil toplanmış, `AMDuProfCLI.exe report -i
 > <oturum>` ile "10 HOTTEST PROCESSES" bölümünden süreç-düzeyinde toplu
-> (aggregate) metrikler çıkarılmıştır.
+> (aggregate) metrikler çıkarılmıştır. Unity oturumları için motor başlatma
+> gecikmesini örneklemeden tamamen çıkarmak amacıyla `collect -p <PID>`
+> ("Attach to Process") yöntemi kullanılmıştır: uygulama önce uProf'suz
+> başlatılıp test ekranı gelene kadar beklenmiş, ardından zaten çalışan
+> process'e attach edilerek örnekleme başlatılmış ve hemen test çalıştırılmıştır
+> — böylece motor yükleme/başlatma süresi profile hiç karışmamıştır (Godot
+> zaten hızlı açıldığı için orijinal "launch" yöntemiyle ölçülmüştür).
 
 **Ölçüm Sonuçları (Gerçek Veri — AMD Ryzen 5 5600H, Zen3, AMD uProf 4.2):**
 
@@ -269,43 +275,53 @@ L2 Miss Rate = (LOCAL_CACHE + EXTERNAL_CACHE_LOCAL + LOCAL_DRAM)
 
 | İmplementasyon | N | IPC | L1 DC Miss Ratio | L2 Miss Rate |
 |---|---|---|---|---|
-| Unity OOP   | 1.000   | 0.881 | 5.47% | 48.87% |
-| Unity OOP   | 100.000 | 0.485 | 5.89% | 49.41% |
-| Unity DOTS  | 1.000   | 0.735 | 5.79% | 47.43% |
-| Unity DOTS  | 100.000 | 0.925 | 2.75% | 45.93% |
+| Unity OOP   | 1.000   | 0.876 | 5.66% | 55.04% |
+| Unity OOP   | 100.000 | 0.432 | 6.19% | 52.56% |
+| Unity DOTS  | 1.000   | 0.673 | 6.36% | 53.14% |
+| Unity DOTS  | 100.000 | 0.881 | 2.74% | 50.49% |
 | Godot OOP   | 1.000   | 1.596 | 2.42% | 38.93% |
 | Godot OOP   | 100.000 | 1.369 | 2.76% | 29.93% |
 | Godot DOD   | 1.000   | 0.877 | 4.86% | 45.00% |
 | Godot DOD   | 100.000 | 2.010 | 2.81% | 26.42% |
 
+(Unity satırları "Attach to Process" yöntemiyle ölçülmüştür — motor başlatma
+gecikmesi içermez; bkz. yukarıdaki not. Godot satırları orijinal "launch"
+yöntemiyle ölçülmüştür.)
+
 **Yorum:**
 - **Ölçekle birlikte değişim yönü, hipotezi destekliyor:** Her iki DOD/DOTS
   implementasyonu da N arttıkça IPC'de **iyileşme** ve L2 miss rate'te **düşüş**
-  gösteriyor (DOTS: IPC 0.735→0.925, L2 miss 47.4%→45.9%; Godot DOD: IPC
+  gösteriyor (Unity DOTS: IPC 0.673→0.881, L2 miss 53.1%→50.5%; Godot DOD: IPC
   0.877→2.010, L2 miss 45.0%→26.4%). Bu, SoA bellek düzeninin büyük N'de
   donanım prefetcher'ını daha verimli kullandığını doğrudan gösterir.
 - **Godot DOD @ 100K** tüm 8 oturumun en iyi sonucu: en yüksek IPC (2.01) ve
   en düşük L2 miss rate (%26.4) — DOD tezinin niceliksel kanıtı.
+- **Unity DOTS @ 100K, L1 miss ratio'da en güçlü iyileşmeyi gösteriyor**
+  (%6.36→%2.74, yani ~2.3x azalma) — gecikmeden arındırılmış ölçümde dahi DOD
+  hipotezi (ardışık bellek erişimi → daha az L1 miss) doğrulanıyor.
 - **Godot OOP'ta da L2 miss düşüşü var** (38.9%→29.9%) ama Godot DOD'dan daha
-  az; bu, Godot Node2D'lerin Unity GameObject'lerine göre nispeten daha derli
-  toplu bellek tahsisi yapmasıyla açıklanabilir — yine de AoS/SoA farkı IPC'de
-  açıkça görülüyor (Godot DOD 100K'da Godot OOP'tan ~%47 daha yüksek IPC).
-- **Unity OOP, N ile birlikte kötüleşiyor** (IPC 0.881→0.485, beklenen OOP
+  az; bu, Godot Node2D'lerin bellek tahsisinin Unity GameObject'lere göre
+  nispeten daha derli toplu olmasıyla açıklanabilir — yine de AoS/SoA farkı
+  IPC'de açıkça görülüyor (Godot DOD 100K'da Godot OOP'tan ~%47 daha yüksek IPC).
+- **Unity OOP, N ile birlikte kötüleşiyor** (IPC 0.876→0.432, beklenen OOP
   davranışı: dağınık heap adresleri arttıkça prefetcher verimsizleşiyor).
-  Ancak Unity sonuçları genel olarak daha gürültülü (bkz. aşağıdaki limitasyon
-  notu) — Unity DOTS'un 1K→100K IPC artışı beklenenden düşük kalmış olabilir.
+  Unity DOTS ise IPC'de iyileşme gösteriyor (0.673→0.881) — yön olarak Godot
+  DOD ile aynı eğilimde, ancak mutlak artış Godot DOD'dan daha mütevazı (Unity
+  motorunun render/yönetim ek yükü payı muhtemelen daha yüksek).
+- **L2 miss rate, Unity'de Godot'a göre genel olarak daha yüksek** (Unity
+  ~%50–55 vs Godot ~%27–45) — bu artık başlatma gecikmesinden değil, gerçek
+  workload farkından kaynaklanıyor (Unity'nin daha ağır motor altyapısı: ECS
+  chunk yönetimi, Burst job sistemi, render pipeline farklı bellek erişim
+  desenleri ekliyor).
 
-> **Bilinen limitasyon (kullanıcı tarafından doğrulandı):** Unity uygulamaları
-> açılışta birkaç saniye gecikme yaşıyor; `AMDuProfCLI.exe collect` exe'yi
-> başlattığı anda örneklemeye başladığından, her Unity oturumunun başında
-> kaçınılmaz bir "motor başlatma" (workload-dışı) süresi profile karışıyor.
-> Test, pencere göründüğü an başlatılmış ve bitişten 1-2 sn içinde profil
-> durdurulmuş olsa da, bu başlangıç gecikmesi — özellikle kısa 1K oturumlarında
-> — toplam örnekleme süresinin görece daha büyük bir kısmını oluşturuyor. Bu
-> durum **Unity↔Godot arası mutlak IPC/miss-rate karşılaştırmalarını** zayıflatabilir;
-> ancak aynı motor içindeki **OOP vs DOD/DOTS karşılaştırması** büyük ölçüde
-> geçerliliğini korur, çünkü her iki varyant da aynı motor başlatma yükünü
-> paylaşır. Makalede bu sınırlama açıkça belirtilmelidir.
+> **Not (gecikme sorunu çözüldü):** İlk ölçümlerde Unity oturumları
+> `AMDuProfCLI.exe collect <exe>` ile başlatılıyor ve örnekleme exe başlar
+> başlamaz devreye giriyordu; bu da motor başlatma süresinin profile
+> karışmasına yol açıyordu. Bu sürüm, `-p <PID>` ("Attach to Process") yöntemiyle
+> tekrarlanmıştır: uygulama önce bağımsız başlatılmış, test ekranı gelene kadar
+> beklenmiş, sonra zaten çalışan process'e attach edilip örnekleme başlatılmıştır.
+> Bu sayede yukarıdaki Unity satırları artık motor başlatma/yükleme süresinden
+> arındırılmıştır ve Godot ile **doğrudan karşılaştırılabilir** durumdadır.
 
 ### 4.7. Geçerlilik Tehditleri (Limitations)
 
