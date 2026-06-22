@@ -228,13 +228,22 @@ Cache Miss Rate (%) = (L2 Misses / L2 Accesses) × 100
 ```
 
 **Protokol:**
-1. Her implementasyon için **ayrı profil oturumu** açılır (uProf "Launch
-   Application" ile `.exe` başlatılır).
+1. Her implementasyon için **ayrı profil oturumu** açılır; uygulama önce
+   uProf'suz, bağımsız olarak başlatılır ve test ekranı gelene kadar
+   beklenir, ardından zaten çalışan process'e `AMDuProfCLI.exe collect -p
+   <PID>` ("Attach to Process") ile attach edilerek örnekleme başlatılır. Bu
+   yöntem motor başlatma/yükleme süresinin profile karışmasını engeller
+   (bkz. aşağıdaki not).
 2. Oturum başına **tek bir entity sayısı** test edilir (HUD'dan "Tek Test"); 5
    entity sayısının verisi karışmaması için "Tüm Testler" modu kullanılmaz.
 3. Uç noktalar (N=1.000 ve N=100.000) zorunlu profillenir; ara noktalar
    (5K/10K/50K) kaynak elverdiğince eklenir.
-4. Toplam oturum sayısı: 4 implementasyon × ≥2 entity sayısı = ≥8 profil.
+4. Tek-oturum gürültüsünü azaltmak için **her konfigürasyon 3 kez bağımsız
+   olarak tekrarlanır**; raporlanan IPC/L1/L2 değerleri bu 3 tekrarın
+   aritmetik ortalamasıdır (ham veri ve standart sapımlar
+   `results/cache-profiling/cache_miss_results.csv` içinde saklanır).
+5. Toplam oturum sayısı: 4 implementasyon × 2 entity sayısı × 3 tekrar = 24
+   profil.
 
 **Beklenen bulgu (hipotez):**
 - **OOP (AoS):** Yüksek L2 miss oranı; entity sayısıyla birlikte **artan** miss
