@@ -190,8 +190,17 @@ plt.savefig(out2, dpi=300, bbox_inches="tight")
 plt.savefig(OUT / "fig2_speedup_ratio.pdf", bbox_inches="tight")
 print(f"Saved: {out2}")
 
-# ── 5. Figure 3: platform comparison (OOP vs OOP, DOD vs DOD) ────────────────
-fig3, axes3 = plt.subplots(1, 2, figsize=(12, 4.5))
+# ── 5. Figure 3: cross-engine comparison (OOP vs OOP, DOD vs DOD) ────────────
+# Shared y-axis across both panels so the two paradigms are directly
+# comparable: the reader can see at a glance that DOD (panel b) sits far
+# lower (faster) than OOP (panel a) at every scale.
+fig3, axes3 = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
+
+# common y-range covering every series in this figure
+_all_ft = [avg[l]["AvgFrameTime_ms"][ec]
+           for l in ["Unity OOP", "Godot OOP", "Unity DOTS", "Godot DOD"]
+           for ec in ENTITY_COUNTS]
+_ylim = (min(_all_ft) * 0.7, max(_all_ft) * 1.5)
 
 ax_oop = axes3[0]
 for lbl in ["Unity OOP", "Godot OOP"]:
@@ -201,11 +210,14 @@ for lbl in ["Unity OOP", "Godot OOP"]:
                 markerfacecolor="white", markeredgewidth=1.3, **s)
 ax_oop.set_xscale("log")
 ax_oop.set_yscale("log")
+ax_oop.set_ylim(_ylim)
 ax_oop.set_xlabel("Entity Count")
 ax_oop.set_ylabel("Frame Time (ms)")
-ax_oop.set_title("(a) Cross-Engine, OOP Level\n(C#/.NET vs. GDScript)")
+ax_oop.set_title("(a) OOP: Unity vs. Godot")
 ax_oop.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
 ax_oop.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+ax_oop.axhline(16.7, color="0.6", linestyle="--", linewidth=0.8)
+ax_oop.text(1100, 17.5, "60 FPS", fontsize=8, color="0.4")
 ax_oop.grid(True, which="both", alpha=0.25, color="0.7")
 ax_oop.legend(fontsize=9, frameon=True, edgecolor="black")
 
@@ -217,11 +229,12 @@ for lbl in ["Unity DOTS", "Godot DOD"]:
                 markerfacecolor="white", markeredgewidth=1.3, **s)
 ax_dod.set_xscale("log")
 ax_dod.set_yscale("log")
+ax_dod.set_ylim(_ylim)
 ax_dod.set_xlabel("Entity Count")
-ax_dod.set_ylabel("Frame Time (ms)")
-ax_dod.set_title("(b) Cross-Engine, DOD Level\n(Burst+ECS vs. C++ SoA)")
+ax_dod.set_title("(b) DOD: Unity vs. Godot")
 ax_dod.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
-ax_dod.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:.1f}"))
+ax_dod.axhline(16.7, color="0.6", linestyle="--", linewidth=0.8)
+ax_dod.text(1100, 17.5, "60 FPS", fontsize=8, color="0.4")
 ax_dod.grid(True, which="both", alpha=0.25, color="0.7")
 ax_dod.legend(fontsize=9, frameon=True, edgecolor="black")
 
