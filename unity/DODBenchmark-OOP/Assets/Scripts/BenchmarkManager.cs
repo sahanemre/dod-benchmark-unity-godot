@@ -44,6 +44,11 @@ public class BenchmarkManager : MonoBehaviour
 
     void Start()
     {
+        // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
+        // hizina kilitlenir ve gercek is yuku olculmez. Benchmark icin sart.
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
         Camera cam = Camera.main;
         float height = cam.orthographicSize;
         float width = height * cam.aspect;
@@ -83,14 +88,14 @@ public class BenchmarkManager : MonoBehaviour
         testTimer += Time.unscaledDeltaTime;
 
         // Ilk 1 saniye warmup — veriye dahil etme
-        if (testTimer > 1f)
+        if (testTimer > 3f)
             stats.AddSample(currentFrameTime);
 
         // Bellek olcumu (test ortasinda)
         if (testTimer > testDuration / 2f && memoryDuringTest == 0)
             memoryDuringTest = System.GC.GetTotalMemory(false);
 
-        if (testTimer >= testDuration + 1f)
+        if (testTimer >= testDuration + 3f)
         {
             EndCurrentTest();
         }
@@ -98,7 +103,7 @@ public class BenchmarkManager : MonoBehaviour
         {
             statusText = $"Test: {entityCounts[currentTestIndex]:N0} entity | " +
                          $"FPS: {currentFPS:F0} | Frame: {currentFrameTime:F2}ms | " +
-                         $"Kalan: {(testDuration + 1f - testTimer):F0}s";
+                         $"Kalan: {(testDuration + 3f - testTimer):F0}s";
         }
     }
 

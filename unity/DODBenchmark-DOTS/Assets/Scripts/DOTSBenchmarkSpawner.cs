@@ -44,6 +44,21 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
 
     void Start()
     {
+        // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
+        // hizina kilitlenir ve gercek is yuku olculmez. Benchmark icin sart.
+        QualitySettings.vSyncCount = 0;
+        Application.targetFrameRate = -1;
+
+        // HUD'u EN ONCE kur: render/DOTS kurulumu hata verse bile panel ve
+        // butonlar her zaman gorunur. (Build'de Shader.Find null donerse eski
+        // kodda Start() yarida kesiliyor ve butonlar hic kurulmuyordu.)
+        hud.Title = "DOD Benchmark — Unity DOTS";
+        hud.HighlightColor = Color.cyan;
+        hud.EntityCounts = entityCounts;
+        hud.OnSelect = i => hud.SelectedIndex = i;
+        hud.OnStartSingle = () => { csv.Reset(); StartTest(hud.SelectedIndex); };
+        hud.OnStartAll = () => { allTestsMode = true; csv.Reset(); StartTest(0); };
+
         EntityManager entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
 
         Camera cam = Camera.main;
@@ -56,21 +71,46 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
             entityMesh = EntityFactory.CreateQuadMesh();
 
         if (entityMaterial == null)
+            entityMaterial = CreateDefaultMaterial();
+
+        if (entityMaterial == null)
         {
-            entityMaterial = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            if (entityMaterial.shader == null)
-                entityMaterial = new Material(Shader.Find("Sprites/Default"));
-            entityMaterial.color = Color.white;
+            statusText = "HATA: Uygun shader bulunamadi.\n" +
+                         "Inspector'da Entity Material ata VEYA URP/Unlit'i\n" +
+                         "Project Settings > Graphics > Always Included Shaders'a ekle.";
+            Debug.LogError("[DOTS Benchmark] " + statusText);
+            return;
         }
 
         factory = new EntityFactory(entityManager, entityMesh, entityMaterial, moveSpeed, screenMin, screenMax);
+    }
 
-        hud.Title = "DOD Benchmark — Unity DOTS";
-        hud.HighlightColor = Color.cyan;
-        hud.EntityCounts = entityCounts;
-        hud.OnSelect = i => hud.SelectedIndex = i;
-        hud.OnStartSingle = () => { csv.Reset(); StartTest(hud.SelectedIndex); };
-        hud.OnStartAll = () => { allTestsMode = true; csv.Reset(); StartTest(0); };
+    /// <summary>
+    /// Build'de URP shader'lari strip edilebilir; bu yuzden birden fazla shader
+    /// denenir. Hicbiri bulunamazsa null doner (Start crash etmek yerine
+    /// kullaniciya talimat gosterir). Not: DOTS/Entities Graphics ile entity
+    /// cizimi icin URP shader'i sart — fallback'ler yalnizca crash'i onler.
+    /// </summary>
+    static Material CreateDefaultMaterial()
+    {
+        string[] candidates =
+        {
+            "Universal Render Pipeline/Unlit",
+            "Universal Render Pipeline/Lit",
+            "Sprites/Default",
+            "Unlit/Color"
+        };
+
+        foreach (string name in candidates)
+        {
+            Shader shader = Shader.Find(name);
+            if (shader != null)
+            {
+                var mat = new Material(shader) { color = Color.white };
+                return mat;
+            }
+        }
+        return null;
     }
 
     void Update()
@@ -83,14 +123,14 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         testTimer += Time.unscaledDeltaTime;
 
         // Ilk 1 saniye warmup — veriye dahil etme
-        if (testTimer > 1f)
+        if (testTimer > 3f)
             stats.AddSample(currentFrameTime);
 
         // Bellek olcumu (test ortasinda)
         if (testTimer > testDuration / 2f && memoryDuringTest == 0)
             memoryDuringTest = System.GC.GetTotalMemory(false);
 
-        if (testTimer >= testDuration + 1f)
+        if (testTimer >= testDuration + 3f)
         {
             EndCurrentTest();
         }
@@ -98,7 +138,7 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         {
             statusText = $"Test: {entityCounts[currentTestIndex]:N0} entity | " +
                          $"FPS: {currentFPS:F0} | Frame: {currentFrameTime:F2}ms | " +
-                         $"Kalan: {(testDuration + 1f - testTimer):F0}s";
+                         $"Kalan: {(testDuration + 3f - testTimer):F0}s";
         }
     }
 
