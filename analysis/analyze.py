@@ -161,14 +161,16 @@ unity_ratios = [avg["Unity OOP"]["AvgFrameTime_ms"][ec] /
 godot_ratios = [avg["Godot OOP"]["AvgFrameTime_ms"][ec] /
                 avg["Godot DOD"]["AvgFrameTime_ms"][ec] for ec in ENTITY_COUNTS]
 
-bars1 = ax3.bar(x - width/2, unity_ratios, width, label="Unity (DOTS / OOP)",
+bars1 = ax3.bar(x - width/2, unity_ratios, width, label="Unity",
                 color="0.65", edgecolor="black", linewidth=0.8, hatch="//")
-bars2 = ax3.bar(x + width/2, godot_ratios, width, label="Godot (DOD / OOP)",
+bars2 = ax3.bar(x + width/2, godot_ratios, width, label="Godot",
                 color="0.15", edgecolor="black", linewidth=0.8, hatch="..")
 
 ax3.axhline(1, color="black", linewidth=0.8, linestyle="--")
+ax3.text(len(ENTITY_COUNTS) - 0.45, 1.0, "break-even (1$\\times$)",
+         ha="right", va="bottom", fontsize=7.5, color="0.3")
 ax3.set_xlabel("Entity Count")
-ax3.set_ylabel("Speedup Ratio (OOP / DOD)\n(higher = larger DOD advantage)")
+ax3.set_ylabel("DOD Speedup over OOP ($\\times$)\n(higher = larger DOD advantage)")
 ax3.set_title("DOD Speedup over OOP, per Engine")
 ax3.set_xticks(x)
 ax3.set_xticklabels([f"{ec:,}" for ec in ENTITY_COUNTS])
