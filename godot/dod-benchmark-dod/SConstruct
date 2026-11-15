@@ -27,4 +27,25 @@ else:
         source=sources,
     )
 
-Default(library)
+targets = [library]
+
+# --- procmem: OS duzeyi bellek olcum eklentisi (iki Godot projesinin ortagi) --
+# Kaynaklar godot/procmem/src altinda. godot-cpp tek kez derlensin diye burada
+# ikinci bir kutuphane olarak derlenir; movementdod'u ETKILEMEZ. Cikti hem bu
+# projenin demo/bin'ine hem Godot OOP projesinin bin/'ine konur.
+if env["platform"] != "macos":
+    env_pm = env.Clone()
+    env_pm.Append(CPPPATH=["../procmem/src/"])
+    if env["platform"] == "windows":
+        # GetProcessMemoryInfo (psapi). Yeni SDK'larda kernel32'ye yonlenir;
+        # eski SDK/MinGW icin kutuphane acikca eklenir.
+        env_pm.Append(LIBS=["psapi"])
+    procmem = env_pm.SharedLibrary(
+        "{}/libprocmem{}{}".format(bindir, env["suffix"], env["SHLIBSUFFIX"]),
+        source=Glob("../procmem/src/*.cpp"),
+    )
+    # MSVC .lib/.exp da uretir; yalnizca paylasimli kutuphaneyi kopyala
+    procmem_shlib = [n for n in procmem if str(n).endswith(env["SHLIBSUFFIX"])]
+    targets += [procmem, env_pm.Install("../dod-benchmark-oop/bin", procmem_shlib)]
+
+Default(targets)

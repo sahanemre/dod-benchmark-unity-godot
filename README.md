@@ -46,9 +46,13 @@ Her senaryo 1K, 5K, 10K, 50K, 100K entity ile test edilmektedir.
 │   └── DODBenchmark-DOTS/       # Unity DOTS projesi
 ├── godot/
 │   ├── dod-benchmark-oop/       # Godot OOP projesi
-│   └── dod-benchmark-dod/       # Godot DOD (GDExtension C++)
+│   ├── dod-benchmark-dod/       # Godot DOD (GDExtension C++)
+│   └── procmem/                 # Ortak OS bellek ölçüm eklentisi (private bytes)
+├── tools/
+│   ├── run_s1.ps1               # S1 gözetimsiz koşu scripti (bkz. S1_CALISTIRMA.md)
+│   └── s1_builds.json           # Dört standalone exe'nin yolu
 ├── results/
-│   └── benchmarks/              # Benchmark sonuçları (CSV)
+│   └── benchmarks/              # Benchmark sonuçları (CSV; S1 yeniden koşu: s1/)
 ├── paper/
 │   └── ubmk-2026/               # UBMK 2026 makale dosyaları
 └── .gitignore

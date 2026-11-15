@@ -66,6 +66,11 @@ dod-benchmark-dod/
    Cikti `demo/bin/` altina yazilir (orn.
    `libmovementdod.windows.template_debug.x86_64.dll`).
 
+   Ayni komut ortak bellek olcum eklentisini (`../procmem`, OS duzeyi
+   process private bytes) de derler: `libprocmem...dll` hem `demo/bin/`
+   altina hem Godot OOP projesinin `bin/` klasorune konur. Ayrintilar:
+   `tools/S1_CALISTIRMA.md`.
+
 3. `demo/` klasorunu Godot'ta ac ve `Main.tscn`'i calistir.
    `bin/movementdod.gdextension` derlenen kutuphaneyi otomatik yukler.
 

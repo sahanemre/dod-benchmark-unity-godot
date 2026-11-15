@@ -1,0 +1,6 @@
+{
+  "unity-oop":  "%USERPROFILE%/Documents/benchmark-oop/DODBenchmark-OOP.exe",
+  "unity-dots": "%USERPROFILE%/Documents/benchmark-dod/DODBenchmark-DOTS.exe",
+  "godot-oop":  "%USERPROFILE%/Documents/benchmark-godot-oop/dod-benchmark-oop.exe",
+  "godot-dod":  "%USERPROFILE%/Documents/benchmark-godot-dod/dod-benchmark-dod (native C++).exe"
+}

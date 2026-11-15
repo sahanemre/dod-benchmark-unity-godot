@@ -42,6 +42,16 @@ public class BenchmarkManager : MonoBehaviour
     private float currentFrameTime = 0f;
     private string statusText = "Hazir. Test secin ve baslatin.";
 
+    // OS duzeyi bellek: warmup biter bitmez bir kez okunur (process private bytes)
+    private long privateBytesAfterWarmup = -1;
+    private bool privateBytesRecorded = false;
+
+    // Gozetimsiz kosu (komut satirindan --n verildiginde)
+    private RunArgs runArgs;
+    private int unattendedIndex = -1;
+    private bool unattendedStarted = false;
+    private float idleTimer = 0f;
+
     void Start()
     {
         // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
@@ -66,6 +76,36 @@ public class BenchmarkManager : MonoBehaviour
         hud.OnSelect = i => hud.SelectedIndex = i;
         hud.OnStartSingle = () => { csv.Reset(); StartTest(hud.SelectedIndex); };
         hud.OnStartAll = () => { allTestsMode = true; csv.Reset(); StartTest(0); };
+
+        SetupUnattended();
+    }
+
+    /// <summary>
+    /// --n verilmisse gozetimsiz moda gecer. Gecersiz arguman veya listede
+    /// olmayan N hata koduyla cikar (calistirma scripti bunu kaydeder).
+    /// </summary>
+    void SetupUnattended()
+    {
+        runArgs = RunArgs.Parse(System.Environment.GetCommandLineArgs());
+        if (!runArgs.Active) return;
+
+        if (runArgs.Error != null)
+        {
+            Debug.LogError($"[Benchmark] {runArgs.Error}");
+            Application.Quit(2);
+            return;
+        }
+
+        unattendedIndex = System.Array.IndexOf(entityCounts, runArgs.N);
+        if (unattendedIndex < 0)
+        {
+            Debug.LogError($"[Benchmark] N={runArgs.N} entityCounts listesinde yok.");
+            Application.Quit(2);
+            return;
+        }
+
+        statusText = $"Gozetimsiz kosu: N={runArgs.N:N0}, run={runArgs.RunIndex}";
+        Debug.Log($"[Benchmark] {statusText} -> {runArgs.OutPath}");
     }
 
     static Sprite CreateDefaultSprite()
@@ -83,13 +123,38 @@ public class BenchmarkManager : MonoBehaviour
         currentFrameTime = Time.unscaledDeltaTime * 1000f;
         currentFPS = 1f / Time.unscaledDeltaTime;
 
+        // Gozetimsiz mod: butona basmanin yerine, motor acilisindan sonra kisa
+        // bir bekleme ile testi baslatir. Manuel akista StartTest OnGUI'de
+        // (Update'ten sonra) cagrilir; ayni zamanlamayi korumak icin burada
+        // baslatip bu frame'in Update'ini bitiriyoruz.
+        if (unattendedIndex >= 0 && !unattendedStarted)
+        {
+            idleTimer += Time.unscaledDeltaTime;
+            if (idleTimer >= runArgs.IdleDelay)
+            {
+                unattendedStarted = true;
+                csv.Reset();
+                StartTest(unattendedIndex);
+            }
+            return;
+        }
+
         if (!isTesting) return;
 
         testTimer += Time.unscaledDeltaTime;
 
-        // Ilk 1 saniye warmup — veriye dahil etme
+        // Ilk 3 saniye warmup — veriye dahil etme
         if (testTimer > 3f)
+        {
             stats.AddSample(currentFrameTime);
+
+            // Warmup bitti: OS duzeyi bellegi bir kez oku
+            if (!privateBytesRecorded)
+            {
+                privateBytesAfterWarmup = ProcessMemory.GetPrivateBytes();
+                privateBytesRecorded = true;
+            }
+        }
 
         // Bellek olcumu (test ortasinda)
         if (testTimer > testDuration / 2f && memoryDuringTest == 0)
@@ -114,6 +179,8 @@ public class BenchmarkManager : MonoBehaviour
         testTimer = 0f;
         stats.Reset();
         memoryDuringTest = 0;
+        privateBytesAfterWarmup = -1;
+        privateBytesRecorded = false;
 
         System.GC.Collect();
         System.GC.WaitForPendingFinalizers();
@@ -126,6 +193,12 @@ public class BenchmarkManager : MonoBehaviour
     void EndCurrentTest()
     {
         isTesting = false;
+
+        if (unattendedStarted)
+        {
+            FinishUnattended();
+            return;
+        }
 
         if (stats.SampleCount > 0)
         {
@@ -153,6 +226,46 @@ public class BenchmarkManager : MonoBehaviour
             string file = csv.Save("unity_oop");
             statusText += $"\nCSV: {file}";
         }
+    }
+
+    /// <summary>
+    /// Gozetimsiz kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+    /// Cikis kodlari: 0 basarili, 2 gecersiz arguman, 3 ornek yok,
+    /// 4 bellek okunamadi, 5 yazma hatasi.
+    /// </summary>
+    void FinishUnattended()
+    {
+        int exitCode = 0;
+
+        if (stats.SampleCount == 0)
+        {
+            Debug.LogError("[Benchmark] Olcum penceresinde hic ornek yok.");
+            exitCode = 3;
+        }
+        else if (privateBytesAfterWarmup < 0)
+        {
+            Debug.LogError("[Benchmark] Process private bytes okunamadi.");
+            exitCode = 4;
+        }
+        else
+        {
+            BenchmarkResult result = stats.Compute(runArgs.N, 0f, testDuration);
+            try
+            {
+                RunCsvWriter.Write(runArgs.OutPath, "unity", "oop", "S1", runArgs.N, runArgs.RunIndex,
+                    result.AvgFrameTime, result.AvgFPS, privateBytesAfterWarmup);
+                Debug.Log($"[Benchmark] Kosu tamamlandi: N={runArgs.N:N0} run={runArgs.RunIndex} | " +
+                          $"Ort: {result.AvgFrameTime:F3}ms ({result.AvgFPS:F1} FPS) | " +
+                          $"Private bytes: {privateBytesAfterWarmup:N0}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[Benchmark] Sonuc yazilamadi: {e}");
+                exitCode = 5;
+            }
+        }
+
+        Application.Quit(exitCode);
     }
 
     void OnGUI()

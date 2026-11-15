@@ -37,6 +37,17 @@ var _current_fps: float = 0.0
 var _current_frame_time: float = 0.0
 var _status_text: String = "Hazir. Test secin ve baslatin."
 
+# OS duzeyi bellek: warmup biter bitmez bir kez okunur (process private bytes)
+var _mem_reader: ProcessMemoryReader
+var _private_bytes_after_warmup: int = -1
+var _private_bytes_recorded: bool = false
+
+# Gozetimsiz kosu (komut satirindan --n verildiginde)
+var _run_args: RunArgs
+var _unattended_index: int = -1
+var _unattended_started: bool = false
+var _idle_timer: float = 0.0
+
 
 func _ready() -> void:
 	# VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme hizina
@@ -80,6 +91,45 @@ func _ready() -> void:
 			+ "  scons platform=windows target=template_debug")
 		_hud.set_unavailable(_status_text)
 
+	_mem_reader = ProcessMemoryReader.new()
+	_setup_unattended()
+
+
+## --n verilmisse gozetimsiz moda gecer. Hatali durumda hata koduyla cikar
+## (calistirma scripti bunu kaydeder).
+## Cikis kodlari: 0 basarili, 2 gecersiz arguman, 3 ornek yok,
+## 4 bellek okunamadi, 5 yazma hatasi, 6 MovementWorld eklentisi yok,
+## 7 procmem eklentisi yuklenemedi.
+func _setup_unattended() -> void:
+	_run_args = RunArgs.parse(OS.get_cmdline_user_args())
+	if not _run_args.active:
+		return
+
+	if not _run_args.error.is_empty():
+		push_error("[DOD Native] " + _run_args.error)
+		get_tree().quit(2)
+		return
+
+	if not _native_ok:
+		push_error("[DOD Native] MovementWorld native eklentisi yuklenemedi.")
+		get_tree().quit(6)
+		return
+
+	_unattended_index = entity_counts.find(_run_args.n)
+	if _unattended_index < 0:
+		push_error("[DOD Native] N=%d entity_counts listesinde yok." % _run_args.n)
+		get_tree().quit(2)
+		return
+
+	if not _mem_reader.is_available():
+		_unattended_index = -1
+		push_error("[DOD Native] procmem eklentisi yuklenemedi (bin/libprocmem*.dll).")
+		get_tree().quit(7)
+		return
+
+	_status_text = "Gozetimsiz kosu: N=%d, run=%d" % [_run_args.n, _run_args.run_index]
+	print("[DOD Native] ", _status_text, " -> ", _run_args.out_path)
+
 
 func _process(delta: float) -> void:
 	_current_frame_time = delta * 1000.0
@@ -88,6 +138,18 @@ func _process(delta: float) -> void:
 	var active: int = _world.get_count() if _native_ok else 0
 	_hud.update_metrics(_current_fps, _current_frame_time, active)
 	_hud.set_status(_status_text)
+
+	# Gozetimsiz mod: butona basmanin yerine, motor acilisindan sonra kisa bir
+	# bekleme ile testi baslatir. Manuel akista buton sinyali _process'ten
+	# ONCE islenir ve ayni frame'in _process'i zamanlayiciyi ilerletir; ayni
+	# zamanlamayi korumak icin baslattiktan sonra asagiya devam ediyoruz.
+	if _unattended_index >= 0 and not _unattended_started:
+		_idle_timer += delta
+		if _idle_timer < _run_args.idle_delay:
+			return
+		_unattended_started = true
+		_csv.reset()
+		_start_test(_unattended_index)
 
 	if not _is_testing:
 		return
@@ -102,6 +164,11 @@ func _process(delta: float) -> void:
 	# 3 saniyelik warmup — veriye dahil etme
 	if _test_timer > 3.0:
 		_stats.add_sample(_current_frame_time)
+
+		# Warmup bitti: OS duzeyi bellegi bir kez oku
+		if not _private_bytes_recorded:
+			_private_bytes_after_warmup = _mem_reader.get_private_bytes()
+			_private_bytes_recorded = true
 
 	if _test_timer > test_duration / 2.0 and _memory_during_test == 0.0:
 		_memory_during_test = Performance.get_monitor(Performance.MEMORY_STATIC)
@@ -135,6 +202,8 @@ func _start_test(count_index: int) -> void:
 	_test_timer = 0.0
 	_stats.reset()
 	_memory_during_test = 0.0
+	_private_bytes_after_warmup = -1
+	_private_bytes_recorded = false
 	_memory_at_start = Performance.get_monitor(Performance.MEMORY_STATIC)
 
 	_world.spawn(entity_counts[count_index], move_speed, _screen_min, _screen_max)
@@ -147,6 +216,10 @@ func _start_test(count_index: int) -> void:
 func _end_current_test() -> void:
 	_is_testing = false
 	_hud.set_testing(false)
+
+	if _unattended_started:
+		_finish_unattended()
+		return
 
 	if _stats.get_sample_count() > 0:
 		# NOT: Performance.MEMORY_STATIC native std::vector tahsislerini
@@ -173,3 +246,29 @@ func _end_current_test() -> void:
 		_multimesh.instance_count = 0
 		var file := _csv.save("godot_dod_native")
 		_status_text += "\nCSV: " + file
+
+
+## Gozetimsiz kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+func _finish_unattended() -> void:
+	var exit_code := 0
+
+	if _stats.get_sample_count() == 0:
+		push_error("[DOD Native] Olcum penceresinde hic ornek yok.")
+		exit_code = 3
+	elif _private_bytes_after_warmup < 0:
+		push_error("[DOD Native] Process private bytes okunamadi.")
+		exit_code = 4
+	else:
+		var result := _stats.compute(_run_args.n, 0.0, test_duration)
+		var ok := RunCsvWriter.write(_run_args.out_path, "godot", "dod", "S1",
+			_run_args.n, _run_args.run_index,
+			result.avg_frame_time, result.avg_fps, _private_bytes_after_warmup)
+		if ok:
+			print("[DOD Native] Kosu tamamlandi: N=%d run=%d | Ort: %.3fms (%.1f FPS) | Private bytes: %d" % [
+				_run_args.n, _run_args.run_index,
+				result.avg_frame_time, result.avg_fps, _private_bytes_after_warmup
+			])
+		else:
+			exit_code = 5
+
+	get_tree().quit(exit_code)

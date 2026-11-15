@@ -42,6 +42,16 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     private float currentFrameTime = 0f;
     private string statusText = "Hazir. Test secin ve baslatin.";
 
+    // OS duzeyi bellek: warmup biter bitmez bir kez okunur (process private bytes)
+    private long privateBytesAfterWarmup = -1;
+    private bool privateBytesRecorded = false;
+
+    // Gozetimsiz kosu (komut satirindan --n verildiginde)
+    private RunArgs runArgs;
+    private int unattendedIndex = -1;
+    private bool unattendedStarted = false;
+    private float idleTimer = 0f;
+
     void Start()
     {
         // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
@@ -58,6 +68,10 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         hud.OnSelect = i => hud.SelectedIndex = i;
         hud.OnStartSingle = () => { csv.Reset(); StartTest(hud.SelectedIndex); };
         hud.OnStartAll = () => { allTestsMode = true; csv.Reset(); StartTest(0); };
+
+        // Arguman kontrolu render/DOTS kurulumundan once: kurulum yarida
+        // kalsa bile gozetimsiz kosu hata koduyla cikabilsin.
+        SetupUnattended();
 
         EntityManager entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
 
@@ -83,6 +97,34 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         }
 
         factory = new EntityFactory(entityManager, entityMesh, entityMaterial, moveSpeed, screenMin, screenMax);
+    }
+
+    /// <summary>
+    /// --n verilmisse gozetimsiz moda gecer. Gecersiz arguman veya listede
+    /// olmayan N hata koduyla cikar (calistirma scripti bunu kaydeder).
+    /// </summary>
+    void SetupUnattended()
+    {
+        runArgs = RunArgs.Parse(System.Environment.GetCommandLineArgs());
+        if (!runArgs.Active) return;
+
+        if (runArgs.Error != null)
+        {
+            Debug.LogError($"[DOTS Benchmark] {runArgs.Error}");
+            Application.Quit(2);
+            return;
+        }
+
+        unattendedIndex = System.Array.IndexOf(entityCounts, runArgs.N);
+        if (unattendedIndex < 0)
+        {
+            Debug.LogError($"[DOTS Benchmark] N={runArgs.N} entityCounts listesinde yok.");
+            Application.Quit(2);
+            return;
+        }
+
+        statusText = $"Gozetimsiz kosu: N={runArgs.N:N0}, run={runArgs.RunIndex}";
+        Debug.Log($"[DOTS Benchmark] {statusText} -> {runArgs.OutPath}");
     }
 
     /// <summary>
@@ -118,13 +160,45 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         currentFrameTime = Time.unscaledDeltaTime * 1000f;
         currentFPS = 1f / Time.unscaledDeltaTime;
 
+        // Gozetimsiz mod: butona basmanin yerine, motor acilisindan sonra kisa
+        // bir bekleme ile testi baslatir. Manuel akista StartTest OnGUI'de
+        // (Update'ten sonra) cagrilir; ayni zamanlamayi korumak icin burada
+        // baslatip bu frame'in Update'ini bitiriyoruz.
+        if (unattendedIndex >= 0 && !unattendedStarted)
+        {
+            idleTimer += Time.unscaledDeltaTime;
+            if (idleTimer >= runArgs.IdleDelay)
+            {
+                unattendedStarted = true;
+                if (factory == null)
+                {
+                    // Render/DOTS kurulumu basarisiz (orn. shader bulunamadi)
+                    Debug.LogError("[DOTS Benchmark] EntityFactory kurulamadi; kosu iptal.");
+                    Application.Quit(6);
+                    return;
+                }
+                csv.Reset();
+                StartTest(unattendedIndex);
+            }
+            return;
+        }
+
         if (!isTesting) return;
 
         testTimer += Time.unscaledDeltaTime;
 
-        // Ilk 1 saniye warmup — veriye dahil etme
+        // Ilk 3 saniye warmup — veriye dahil etme
         if (testTimer > 3f)
+        {
             stats.AddSample(currentFrameTime);
+
+            // Warmup bitti: OS duzeyi bellegi bir kez oku
+            if (!privateBytesRecorded)
+            {
+                privateBytesAfterWarmup = ProcessMemory.GetPrivateBytes();
+                privateBytesRecorded = true;
+            }
+        }
 
         // Bellek olcumu (test ortasinda)
         if (testTimer > testDuration / 2f && memoryDuringTest == 0)
@@ -149,6 +223,8 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         testTimer = 0f;
         stats.Reset();
         memoryDuringTest = 0;
+        privateBytesAfterWarmup = -1;
+        privateBytesRecorded = false;
 
         System.GC.Collect();
         System.GC.WaitForPendingFinalizers();
@@ -161,6 +237,12 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     void EndCurrentTest()
     {
         isTesting = false;
+
+        if (unattendedStarted)
+        {
+            FinishUnattended();
+            return;
+        }
 
         if (stats.SampleCount > 0)
         {
@@ -187,6 +269,46 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
             string file = csv.Save("unity_dots");
             statusText += $"\nCSV: {file}";
         }
+    }
+
+    /// <summary>
+    /// Gozetimsiz kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+    /// Cikis kodlari: 0 basarili, 2 gecersiz arguman, 3 ornek yok,
+    /// 4 bellek okunamadi, 5 yazma hatasi, 6 DOTS/render kurulumu basarisiz.
+    /// </summary>
+    void FinishUnattended()
+    {
+        int exitCode = 0;
+
+        if (stats.SampleCount == 0)
+        {
+            Debug.LogError("[DOTS Benchmark] Olcum penceresinde hic ornek yok.");
+            exitCode = 3;
+        }
+        else if (privateBytesAfterWarmup < 0)
+        {
+            Debug.LogError("[DOTS Benchmark] Process private bytes okunamadi.");
+            exitCode = 4;
+        }
+        else
+        {
+            BenchmarkResult result = stats.Compute(runArgs.N, 0f, testDuration);
+            try
+            {
+                RunCsvWriter.Write(runArgs.OutPath, "unity", "dod", "S1", runArgs.N, runArgs.RunIndex,
+                    result.AvgFrameTime, result.AvgFPS, privateBytesAfterWarmup);
+                Debug.Log($"[DOTS Benchmark] Kosu tamamlandi: N={runArgs.N:N0} run={runArgs.RunIndex} | " +
+                          $"Ort: {result.AvgFrameTime:F3}ms ({result.AvgFPS:F1} FPS) | " +
+                          $"Private bytes: {privateBytesAfterWarmup:N0}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[DOTS Benchmark] Sonuc yazilamadi: {e}");
+                exitCode = 5;
+            }
+        }
+
+        Application.Quit(exitCode);
     }
 
     void OnGUI()

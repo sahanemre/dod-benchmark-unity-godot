@@ -26,6 +26,17 @@ var _current_fps: float = 0.0
 var _current_frame_time: float = 0.0
 var _status_text: String = "Hazir. Test secin ve baslatin."
 
+# OS duzeyi bellek: warmup biter bitmez bir kez okunur (process private bytes)
+var _mem_reader: ProcessMemoryReader
+var _private_bytes_after_warmup: int = -1
+var _private_bytes_recorded: bool = false
+
+# Gozetimsiz kosu (komut satirindan --n verildiginde)
+var _run_args: RunArgs
+var _unattended_index: int = -1
+var _unattended_started: bool = false
+var _idle_timer: float = 0.0
+
 
 func _ready() -> void:
 	# VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme hizina
@@ -47,6 +58,39 @@ func _ready() -> void:
 	_hud.start_single_pressed.connect(_on_start_single)
 	_hud.start_all_pressed.connect(_on_start_all)
 
+	_mem_reader = ProcessMemoryReader.new()
+	_setup_unattended()
+
+
+## --n verilmisse gozetimsiz moda gecer. Hatali durumda hata koduyla cikar
+## (calistirma scripti bunu kaydeder).
+## Cikis kodlari: 0 basarili, 2 gecersiz arguman, 3 ornek yok,
+## 4 bellek okunamadi, 5 yazma hatasi, 7 procmem eklentisi yuklenemedi.
+func _setup_unattended() -> void:
+	_run_args = RunArgs.parse(OS.get_cmdline_user_args())
+	if not _run_args.active:
+		return
+
+	if not _run_args.error.is_empty():
+		push_error("[Benchmark] " + _run_args.error)
+		get_tree().quit(2)
+		return
+
+	_unattended_index = entity_counts.find(_run_args.n)
+	if _unattended_index < 0:
+		push_error("[Benchmark] N=%d entity_counts listesinde yok." % _run_args.n)
+		get_tree().quit(2)
+		return
+
+	if not _mem_reader.is_available():
+		_unattended_index = -1
+		push_error("[Benchmark] procmem eklentisi yuklenemedi (bin/libprocmem*.dll).")
+		get_tree().quit(7)
+		return
+
+	_status_text = "Gozetimsiz kosu: N=%d, run=%d" % [_run_args.n, _run_args.run_index]
+	print("[Benchmark] ", _status_text, " -> ", _run_args.out_path)
+
 
 func _process(delta: float) -> void:
 	_current_frame_time = delta * 1000.0
@@ -55,14 +99,31 @@ func _process(delta: float) -> void:
 	_hud.update_metrics(_current_fps, _current_frame_time, _spawner.get_active_count())
 	_hud.set_status(_status_text)
 
+	# Gozetimsiz mod: butona basmanin yerine, motor acilisindan sonra kisa bir
+	# bekleme ile testi baslatir. Manuel akista buton sinyali _process'ten
+	# ONCE islenir ve ayni frame'in _process'i zamanlayiciyi ilerletir; ayni
+	# zamanlamayi korumak icin baslattiktan sonra asagiya devam ediyoruz.
+	if _unattended_index >= 0 and not _unattended_started:
+		_idle_timer += delta
+		if _idle_timer < _run_args.idle_delay:
+			return
+		_unattended_started = true
+		_csv.reset()
+		_start_test(_unattended_index)
+
 	if not _is_testing:
 		return
 
 	_test_timer += delta
 
-	# Ilk 1 saniye warmup — veriye dahil etme
+	# Ilk 3 saniye warmup — veriye dahil etme
 	if _test_timer > 3.0:
 		_stats.add_sample(_current_frame_time)
+
+		# Warmup bitti: OS duzeyi bellegi bir kez oku
+		if not _private_bytes_recorded:
+			_private_bytes_after_warmup = _mem_reader.get_private_bytes()
+			_private_bytes_recorded = true
 
 	# Bellek olcumu (test ortasinda)
 	if _test_timer > test_duration / 2.0 and _memory_during_test == 0.0:
@@ -95,6 +156,8 @@ func _start_test(count_index: int) -> void:
 	_test_timer = 0.0
 	_stats.reset()
 	_memory_during_test = 0.0
+	_private_bytes_after_warmup = -1
+	_private_bytes_recorded = false
 	_memory_at_start = Performance.get_monitor(Performance.MEMORY_STATIC)
 	_spawner.spawn(entity_counts[count_index])
 	_hud.set_testing(true)
@@ -104,6 +167,10 @@ func _start_test(count_index: int) -> void:
 func _end_current_test() -> void:
 	_is_testing = false
 	_hud.set_testing(false)
+
+	if _unattended_started:
+		_finish_unattended()
+		return
 
 	if _stats.get_sample_count() > 0:
 		var memory_mb := (_memory_during_test - _memory_at_start) / (1024.0 * 1024.0)
@@ -126,3 +193,29 @@ func _end_current_test() -> void:
 		_spawner.clear()
 		var file := _csv.save("godot_oop")
 		_status_text += "\nCSV: " + file
+
+
+## Gozetimsiz kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+func _finish_unattended() -> void:
+	var exit_code := 0
+
+	if _stats.get_sample_count() == 0:
+		push_error("[Benchmark] Olcum penceresinde hic ornek yok.")
+		exit_code = 3
+	elif _private_bytes_after_warmup < 0:
+		push_error("[Benchmark] Process private bytes okunamadi.")
+		exit_code = 4
+	else:
+		var result := _stats.compute(_run_args.n, 0.0, test_duration)
+		var ok := RunCsvWriter.write(_run_args.out_path, "godot", "oop", "S1",
+			_run_args.n, _run_args.run_index,
+			result.avg_frame_time, result.avg_fps, _private_bytes_after_warmup)
+		if ok:
+			print("[Benchmark] Kosu tamamlandi: N=%d run=%d | Ort: %.3fms (%.1f FPS) | Private bytes: %d" % [
+				_run_args.n, _run_args.run_index,
+				result.avg_frame_time, result.avg_fps, _private_bytes_after_warmup
+			])
+		else:
+			exit_code = 5
+
+	get_tree().quit(exit_code)
