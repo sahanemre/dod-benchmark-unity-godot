@@ -34,7 +34,11 @@ public class EntityFactory
         this.screenMax = screenMax;
     }
 
-    public void Spawn(int count)
+    /// <param name="seed">null: orijinal davranis (saat tabanli seed, published).
+    /// Deger verilirse tekrarlanabilir baslangic (parity: 1000 + run_index).</param>
+    /// <param name="perEntityColor">true: her entity'ye rastgele renk
+    /// (URPMaterialPropertyBaseColor). false: tek paylasilan beyaz materyal.</param>
+    public void Spawn(int count, uint? seed = null, bool perEntityColor = false)
     {
         DestroyAll();
 
@@ -46,7 +50,9 @@ public class EntityFactory
             shadowCastingMode: ShadowCastingMode.Off,
             receiveShadows: false);
 
-        var random = new Unity.Mathematics.Random((uint)System.DateTime.Now.Ticks);
+        var random = seed.HasValue
+            ? Unity.Mathematics.Random.CreateFromIndex(seed.Value)
+            : new Unity.Mathematics.Random((uint)System.DateTime.Now.Ticks);
 
         for (int i = 0; i < count; i++)
         {
@@ -75,6 +81,21 @@ public class EntityFactory
 
             RenderMeshUtility.AddComponents(entity, entityManager, renderMeshDescription, renderMeshArray,
                 MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0));
+
+            if (perEntityColor)
+            {
+                // Unity OOP ile ayni dagilim: kanal basina [0.3, 1.0). Spawn'da bir
+                // kez atanir, sonra degismez. SpriteRenderer.color sRGB kabul edilir,
+                // _BaseColor (Entities Graphics) ise lineer okunur; ayni gorunum icin
+                // lineer uzaya cevrilir (performansi etkilemez).
+                Color c = new Color(random.NextFloat(0.3f, 1f),
+                                    random.NextFloat(0.3f, 1f),
+                                    random.NextFloat(0.3f, 1f)).linear;
+                entityManager.AddComponentData(entity, new URPMaterialPropertyBaseColor
+                {
+                    Value = new float4(c.r, c.g, c.b, 1f)
+                });
+            }
         }
 
         SpawnedCount = count;

@@ -12,15 +12,19 @@ public class EntitySpawner
     private readonly float moveSpeed;
     private readonly Vector2 screenMin;
     private readonly Vector2 screenMax;
+    // null: SpriteRenderer'in varsayilan materyali (published). parity: isiksiz materyal.
+    private readonly Material spriteMaterial;
 
     public int ActiveCount => active.Count;
 
-    public EntitySpawner(Sprite sprite, float moveSpeed, Vector2 screenMin, Vector2 screenMax)
+    public EntitySpawner(Sprite sprite, float moveSpeed, Vector2 screenMin, Vector2 screenMax,
+        Material spriteMaterial = null)
     {
         this.sprite = sprite;
         this.moveSpeed = moveSpeed;
         this.screenMin = screenMin;
         this.screenMax = screenMax;
+        this.spriteMaterial = spriteMaterial;
     }
 
     public void Spawn(int count)
@@ -30,6 +34,7 @@ public class EntitySpawner
         {
             GameObject go = new GameObject($"Entity_{i}");
             SpriteRenderer sr = go.AddComponent<SpriteRenderer>();
+            if (spriteMaterial != null) sr.sharedMaterial = spriteMaterial;
             sr.sprite = sprite;
             sr.color = new Color(
                 Random.Range(0.3f, 1f),

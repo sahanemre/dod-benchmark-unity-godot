@@ -1,172 +1,258 @@
-# S1 (Toplu Hareket) — Gözetimsiz Yeniden Koşu Rehberi
+# S1 (Toplu Hareket) — Yeniden Koşu Rehberi
 
-Bu rehber S1'in 10 tekrarlı, bellek ölçümlü yeniden koşusunun nasıl
-çalıştırılacağını anlatır. Ölçüm davranışı yayınlanan S1 ile aynıdır:
+Bu rehber S1'in tez için yeniden koşusunu anlatır:
+- konfigürasyon başına 10 tekrar,
+- OS düzeyi bellek ölçümü,
+- dört konfigürasyonda eşit görüntü ve render koşulları.
 
-- Hareket/sekme mantığı değişmedi.
-- 13 s koşu: 3 s warmup + 10 s ölçüm.
-- Frame time aynı kaynaktan ölçülüyor: Unity'de `Time.unscaledDeltaTime`,
-  Godot'ta `_process(delta)`.
+## Değişmeyenler
+
+- Hareket ve sekme mantığı, entity hızları, dünya boyutu.
+- 13 s koşu: 3 s warmup (atılır) + 10 s ölçüm.
+- Frame time'ın ölçülme şekli: Unity'de `Time.unscaledDeltaTime`, Godot'ta
+  `_process(delta)`.
 - VSync kapalı, FPS sınırı yok, standalone build.
-- HUD koşu sırasında da çizilir (yayınlanan ölçümde de çiziliyordu).
+- Tüm konfigürasyonlarda hareket iş yükü tek thread'de, ana thread'de çalışır.
+  Unity DOTS'ta Job System kullanılmaz; `MovementSystem` Burst ile ana
+  thread'de koşar. (Motorların kendi iç thread'leri, örneğin render thread'i,
+  bunun dışındadır.)
 
-## Ne değişti?
+## Profiller
 
-| | Önce | Şimdi |
+Her uygulama `--profile=published|parity` alır. Varsayılan `parity`'dir.
+
+| | published (makaledeki koşul) | parity (eşit koşullar) |
 |---|---|---|
-| Tekrar | 3, elle | Varsayılan 10, `-Runs` ile ayarlanabilir |
-| Süreç | Bir açılışta 5 N arka arkaya ("Tüm Testler") | Her (konfigürasyon, N, tekrar) ayrı süreç |
-| Bellek | Motor sayaçları (`GC.GetTotalMemory`, `Performance.MEMORY_STATIC`) | OS düzeyi **process private bytes**, warmup biter bitmez bir kez |
-| Çıktı | Açılış başına 5 satırlık CSV | Koşu başına 1 satırlık CSV + birleşik `s1_runs.csv` |
-| Başlatma | HUD butonu | Komut satırı (`--n`); argümansız açılınca HUD eskisi gibi çalışır |
+| Görüntü (Unity) | Borderless fullscreen, yerel 1920×1080 | Exclusive fullscreen 1920×1080 |
+| Görüntü (Godot) | 1280×720 pencere | Exclusive fullscreen 1920×1080; 1280×720 mantıksal dünya `canvas_items/keep` ile 1,5 kat ölçeklenir |
+| Entity boyutu (ekranda) | Unity ≈10,1 px, Godot 8 px | Dördü de 10,125 px (Godot 6,75 mantıksal px) |
+| Unity OOP sprite | Işıklı (Sprite-Lit-Default) | Işıksız (Sprite-Unlit-Default) |
+| Unity DOTS renk | Tek beyaz materyal | Entity başına renk (`URPMaterialPropertyBaseColor`, URP/Unlit) |
+| Unity DOTS pipeline | `original` | `lean` (`--dots-pipeline=original` ile değiştirilebilir) |
+| RNG | Orijinal davranış | Sabit seed = 1000 + run_index (pozisyon, hız, renk) |
+| HUD (gözetimsiz koşu) | Açık (her frame) | Kapalı |
+| Grafik API | Unity: makaledeki gibi (zorlanmaz). Godot: D3D12 | Dördü de Direct3D 12 |
+| Build | Godot: debug export; Godot DOD makaledeki DLL ile | Hepsi release (Unity development kapalı, Godot release şablonu, `template_release` DLL) |
 
-**Bellek yöntemi:** Dört konfigürasyonda da aynı Windows çağrısı kullanılır:
-`GetProcessMemoryInfo` → `PROCESS_MEMORY_COUNTERS_EX.PrivateUsage`. Bu,
-perfmon'daki "Private Bytes" sayacıdır.
+**Unity DOTS `lean` pipeline:** URP 3D şablonundan gelen ve iş yüküyle
+ilgisi olmayan frame başı maliyetleri kapatır:
+- post-processing (Bloom, Vignette, Tonemapping) kapalı,
+- skybox yerine düz renk temizleme (Unity OOP ile aynı renk),
+- depth ve opaque texture kopyaları kapalı,
+- gölgeler kapalı.
 
-- Unity bu çağrıyı P/Invoke ile yapar (`ProcessMemory.cs`).
-- GDScript işletim sistemi API'lerine erişemediği için iki Godot projesi
-  ortak, küçük bir GDExtension kullanır (`godot/procmem`).
+**Her iki profilde ortak olanlar:**
+- **Odak kaybında çalışmaya devam:** Unity'de Run In Background açık. Koşu
+  sırasında pencere odağı kaybedilirse CSV'de `focus_lost=1` yazar. Satır
+  yine yazılır; runner bunu sarıyla gösterir.
+- **Bellek ölçümü:** Process private bytes (`GetProcessMemoryInfo` →
+  `PrivateUsage`), dördünde aynı Windows çağrısıyla, warmup'ın son ~100
+  ms'sinde bir kez okunur. Bu çağrının maliyeti atılan bir warmup frame'ine
+  düşer, 10 s ölçüm penceresinde hiçbir örnekleme yapılmaz.
+- **Eski motor sayaçları kapalı:** Eski motor sayacı okumaları
+  (`GC.GetTotalMemory`, `Performance.MEMORY_STATIC`) gözetimsiz koşuda
+  kapalıdır; HUD ile elle kullanımda eskisi gibi çalışır.
 
-Değer, ilk ölçülen frame'de (warmup bittiğinde) bir kez okunur. Çağrının
-maliyeti mikrosaniyeler düzeyindedir.
+**Bilinçli olarak değiştirilmeyenler (makalede kısıt olarak belirtilecek):**
+- **Godot DOD her frame renk yüklüyor.** MultiMesh entity başına rengi
+  (`use_colors`) her frame buffer'a yeniden yazar ve GPU'ya yükler: entity
+  başına 12 float'ın 4'ü renktir. Bu fark Unity DOTS lehinedir.
+- **Duvara çarpma sıklığı farklı.** Godot'ta entity'ler dünyayı yaklaşık
+  4,2 s'de geçer (300 px/s, 1260 px), Unity'de yaklaşık 9,1 s'de (3 birim/s,
+  27,4 birim). Yani Godot'ta duvara çarpma yaklaşık 2,2 kat daha sıktır.
 
-## 1. Bir kerelik hazırlık
+## 1. Build'ler (bir kerelik)
 
-1. **Kodu çek:** `git pull`
+Tüm yeni build'ler `%USERPROFILE%\Documents\s1-builds\` altına gider. Makaledeki
+eski build'ler (`Documents\benchmark-godot-oop`, `benchmark-godot-dod`, …)
+**olduğu gibi kalır**; published Godot DOD'un DLL'i oradan referans alınır.
 
-2. **Native eklentileri derle.** `procmem`'in kaynakları `godot\procmem\src`
-   altındadır, ama Godot DOD'un SConstruct'ı tarafından ikinci bir kütüphane
-   olarak derlenir. Böylece godot-cpp tek kez derlenir. Godot DOD'u derlerken
-   kullandığın godot-cpp klasörü yeterlidir. Aynı komut iki DLL'i de üretir:
-   ```powershell
-   cd godot\dod-benchmark-dod
-   scons platform=windows target=template_debug
-   scons platform=windows target=template_release
-   ```
-   - `libmovementdod...dll` ve `libprocmem...dll` → `demo\bin\`
-   - `libprocmem...dll` → `godot\dod-benchmark-oop\bin\` (kendiliğinden kopyalanır)
+### Godot DOD — native eklentiler
 
-   `movementdod`'un kaynağı değişmedi. Export'u "Export With Debug" ile
-   alıyorsan `template_debug`, almıyorsan `template_release` DLL'leri
-   kullanılır. İkisini de derlemek en garantisi.
+```powershell
+cd godot\dod-benchmark-dod
+scons platform=windows target=template_release
+```
 
-3. **Unity OOP ve Unity DOTS:** Projeyi Unity'de aç. Yeni `.cs` dosyaları
-   otomatik derlenir. Ardından mevcut ayarlarla Windows standalone build al.
+- Bu komut `movementdod` (yeni `set_seed` metoduyla) ve `procmem`'in release
+  DLL'lerini üretir. `procmem`'i Godot OOP'a da kopyalar.
+- **`template_debug`'ı yeniden DERLEME.** Published koşu, makaledeki debug
+  DLL'in kendisini kullanacak (aşağıda).
+- `procmem`'in debug DLL'i önceki adımda zaten üretildi:
+  `demo\bin\libprocmem.windows.template_debug.x86_64.dll`.
 
-4. **Godot OOP ve Godot DOD:** Projeyi editörde aç ve Windows'a export et.
-   `procmem.gdextension` sayesinde DLL export'a kendiliğinden eklenir.
-   Export'tan sonra exe'nin yanında `libprocmem...dll` olduğunu kontrol et.
+### Godot export'ları (her iki proje, ikişer kez)
 
-5. **Exe yolları:** `tools\s1_builds.json` dosyasını aç ve dört exe'nin
-   yolunu kontrol et. Varsayılan yollar `%USERPROFILE%\Documents\...`
-   altındadır.
+| Hedef klasör (`Documents\s1-builds\`) | Proje | "Export With Debug" |
+|---|---|---|
+| `godot-oop-debug\` | Godot OOP | **açık** (published) |
+| `godot-oop-release\` | Godot OOP | kapalı (parity) |
+| `godot-dod-debug\` | Godot DOD (`demo`) | **açık** (published) |
+| `godot-dod-release\` | Godot DOD (`demo`) | kapalı (parity) |
 
-## 2. Çalıştırma
+Exe adları `s1_builds.json` ile aynı olmalı: `dod-benchmark-oop.exe` ve
+`dod-benchmark-dod (native C++).exe`.
 
-Repo kökünde, PowerShell'de:
+**Published Godot DOD için zorunlu adım:** Debug export'tan sonra makaledeki
+DLL'i export klasörüne kopyala:
+
+```powershell
+copy "$env:USERPROFILE\Documents\benchmark-godot-dod\libmovementdod.windows.template_debug.x86_64.dll" `
+     "$env:USERPROFILE\Documents\s1-builds\godot-dod-debug\"
+```
+
+Runner, published Godot DOD koşmadan önce bu DLL'i SHA-256 ile makaledeki
+dosyayla karşılaştırır. Farklıysa hiç koşmadan durur.
+
+### Unity (iki proje)
+
+1. Projeyi aç. Yeni scriptler derlenir; Console'da hata olmamalı.
+2. Build Profiles'ta **Development Build kapalı** olsun. Parity bunu zorunlu
+   tutar.
+3. Build hedefleri:
+   - `Documents\s1-builds\unity-oop\DODBenchmark-OOP.exe`
+   - `Documents\s1-builds\unity-dots\DODBenchmark-DOTS.exe`
+
+   Aynı build iki profilde de kullanılır; profil çalışma anında seçilir.
+4. **Grafik API:** Parity koşusu `-force-d3d12` ile açılır, bu yüzden build'de
+   Direct3D 12 bulunmalı. Smoke test'te parity çıkış kodu 10 ile "Direct3D12
+   bekleniyordu" derse:
+   - Player Settings → Other Settings → "Auto Graphics API for Windows"
+     işaretini kaldır.
+   - Listeyi **Direct3D11, Direct3D12** sırasıyla yap ve yeniden build al.
+   - Sıra önemli: published (zorlanmayan) koşu listenin ilk API'sini kullanır.
+
+Unity OOP'ta parity için `Sprite-Unlit-Default` shader'ı Always Included
+Shaders'a eklendi (repoda). Published'ı etkilemez.
+
+## 2. Smoke test (her konfigürasyon, N=1K, 1 koşu, iki profil)
+
+Repo kökünde:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
+  -Profile published,parity -N 1000 -Runs 1 -OutDir results\benchmarks\s1_smoke
+```
+
+8 koşu yapılır, yaklaşık 3–4 dakika sürer. Hepsi `OK` olmalı. Sonra
+`results\benchmarks\s1_smoke\s1_runs.csv` dosyasını kontrol et:
+
+| Sütun | published beklenen | parity beklenen |
+|---|---|---|
+| `window_mode` | Unity `borderless`, Godot `windowed` | dördü `exclusive` |
+| `render_width/height` | Unity 1920×1080, Godot 1280×720 | dördü 1920×1080 |
+| `dots_color` | unity-dots `off`, diğerleri `na` | unity-dots `on` |
+| `dots_pipeline` | unity-dots `original` | unity-dots `lean` |
+| `focus_lost` | 0 | 0 |
+| `process_private_bytes` | > 0 | > 0 |
+
+**Loglardan kontrol** (`results\benchmarks\s1_smoke\logs\`):
+- Unity loglarında `[Benchmark] profile=... graphics=...` satırı, kullanılan
+  grafik API'yi gösterir. Published satırı, makaledeki API'dir.
+- DOTS logunda `entity shader:` satırı, kullanılan shader'ı gösterir. Published
+  shader'ın makaledekiyle aynı olduğunu doğrulamak için eski build'de ara:
+  ```powershell
+  Get-ChildItem "$env:USERPROFILE\Documents\benchmark-dod\*_Data" -Recurse -File |
+    Select-String -SimpleMatch "Universal Render Pipeline/Unlit","Universal Render Pipeline/Lit" -List |
+    Select-Object Path, Pattern
+  ```
+
+**Hata kodları** (`failures.log`):
+
+| Kod | Anlamı | Ne yapmalı |
+|---|---|---|
+| 2 | Geçersiz argüman | Komutu kontrol et |
+| 3 | Ölçüm penceresinde örnek yok | Logu incele |
+| 4 | Private bytes okunamadı | `procmem` / Windows API |
+| 5 | Sonuç dosyası yazılamadı | Klasör izinleri |
+| 6 | Motor/eklenti kurulumu başarısız | DOTS materyali ya da MovementWorld DLL'i |
+| 7 | `procmem` eklentisi yok | Exe yanında `libprocmem...dll` var mı? |
+| 8 | Görüntü modu/çözünürlük beklenenden farklı | Masaüstü 1920×1080 ve ölçek %100 mü? |
+| 9 | Gerekli shader build'de yok | Always Included Shaders (parity DOTS: URP/Unlit) |
+| 10 | Build/API profille uyuşmuyor | Development build, Godot şablonu, D3D12 ya da eski DLL |
+
+## 3. A/B testleri (N=1K ve 100K, 10 koşu)
+
+### Published ve parity (4 konfigürasyon × 2 N × 10 koşu × 2 profil)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
+  -Profile published,parity -N 1000,100000 -Runs 10 -OutDir results\benchmarks\s1_ab_profile
+```
+
+160 koşu, yaklaşık 70 dakika sürer. Profiller her N için art arda koşar
+(karışık sıra).
+
+### Unity DOTS pipeline: original ve lean (parity, 2 N × 10 koşu)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
+  -Configs unity-dots -DotsPipeline original,lean -N 1000,100000 -Runs 10 `
+  -OutDir results\benchmarks\s1_ab_pipeline
+```
+
+40 koşu, yaklaşık 18 dakika sürer. Geri kalan her şey parity'dir. Fark
+yalnızca DOTS render pipeline'ının etkisidir.
+
+## 4. Tam S1 seti (parity, 4 konfigürasyon × 5 N × 10 koşu)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1
 ```
 
-Varsayılan olarak 4 konfigürasyon × 5 N × 10 tekrar = 200 süreç çalışır.
-Toplam süre yaklaşık 80–90 dakikadır.
+Varsayılanlar: parity, 4 konfigürasyon, 5 N, 10 koşu. Çıktı
+`results\benchmarks\s1\` altına gider. 200 koşu, yaklaşık 85 dakika sürer.
 
-**Her koşuda olanlar:**
+## Koşu sırasında
 
-1. Script exe'yi argümanlarla başlatır.
-2. Uygulama yaklaşık 2 s boşta bekler. Bu süre butona basmanın yerini
-   tutar; motor açılışındaki takılmalar teste karışmaz.
-3. Uygulama testi kendisi başlatır.
-4. 3 s warmup biter, o anda private bytes bir kez okunur.
-5. 10 s boyunca frame time ölçülür.
-6. Uygulama tek satırlık sonucunu kendi dosyasına yazar ve kapanır.
-7. Script sonraki koşudan önce 5 s bekler (soğuma).
+- Laptop prize takılı, güç modu "En iyi performans" olsun.
+- Windows "Rahatsız Etmeyin" açık olsun, arka plan uygulamaları kapalı olsun.
+- Ekrana dokunma.
+- Script uyku ve ekran kapanmasını kendisi engeller.
 
-**Sıra karışıktır:** tekrar → konfigürasyon → N. Böylece termal kayma tek
-bir konfigürasyona yığılmaz.
+## Yarıda kalırsa / tek koşuyu yeniden almak
 
-**Script çalışırken uyku ve ekran kapanması engellenir.**
-
-### Ölçüm sırasında
-
-- Laptop prize takılı olsun, güç modu "En iyi performans" olsun.
-- Arka plan uygulamalarını kapat.
-- Pencerelere dokunma. Odak değişimi frame time'ı etkileyebilir.
-
-## 3. Tekrar çalıştırma ve hata durumu
-
-Geçerli sonuç dosyası olan koşular **atlanır**. Script yarıda kesilirse ya
-da bazı koşular başarısız olursa aynı komutu tekrar çalıştırman yeterli;
-yalnızca eksik koşular alınır.
+Geçerli sonuç dosyası olan koşular atlanır. Aynı komutu tekrar çalıştırmak
+yalnızca eksikleri alır.
 
 ```powershell
-# Tek konfigürasyon + tek N (eksik tekrarlar)
+# Tek konfigürasyon + tek N
 powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 -Configs godot-oop -N 50000
 
-# Tek bir koşuyu zorla yeniden al
+# Tek bir koşuyu zorla yeniden al (örn. focus_lost=1 olan)
 powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 -Configs unity-dots -N 100000 -RunIndex 7 -Force
-
-# Birden fazla değer virgülle verilir
-powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 -Configs unity-oop,godot-oop -N 1000,5000
 
 # Yalnızca birleştir
 powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 -MergeOnly
 ```
 
-Diğer parametreler (varsayılanlarıyla):
+Diğer parametreler: `-TimeoutSec` (120), `-CooldownSec` (5),
+`-IdleDelaySec` (2), `-BuildsFile`, `-OutDir`.
 
-| Parametre | Varsayılan | Açıklama |
-|---|---|---|
-| `-Runs` | 10 | Tekrar sayısı |
-| `-TimeoutSec` | 120 | Bu süreyi aşan koşu sonlandırılır |
-| `-CooldownSec` | 5 | Süreçler arası bekleme |
-| `-IdleDelaySec` | 2 | Açılış sonrası testi başlatmadan önce bekleme |
+## Çıktılar
 
-Başarısız bir koşu (çökme, zaman aşımı ya da hata kodu) diğerlerini
-etkilemez. Her başarısız koşu `failures.log`'a tek satır olarak yazılır.
-Uygulamanın kendi logları `logs/` klasöründedir (repoya eklenmez).
-
-**Uygulama çıkış kodları:**
-
-| Kod | Anlamı |
-|---|---|
-| 0 | Başarılı |
-| 2 | Geçersiz argüman ya da listede olmayan N |
-| 3 | Ölçüm penceresinde örnek yok |
-| 4 | Private bytes okunamadı |
-| 5 | Sonuç dosyası yazılamadı |
-| 6 | Motor/eklenti kurulumu başarısız (DOTS shader ya da MovementWorld DLL'i) |
-| 7 | procmem eklentisi yüklenemedi (Godot) |
-
-## 4. Çıktılar
-
-Hepsi `results\benchmarks\s1\` altındadır:
+Her `-OutDir` altında şunlar oluşur:
 
 | Dosya | İçerik |
 |---|---|
-| `<konfig>_N<N>_run<kk>.csv` | Koşu başına tek satır, örn. `godot-dod_N100000_run07.csv` |
+| `<konfig>_<profil>[_<pipeline>]_N<N>_run<kk>.csv` | Koşu başına tek satır, örn. `unity-dots_parity_lean_N1000_run03.csv` |
 | `s1_runs.csv` | Tüm koşuların birleşimi |
 | `failures.log` | Başarısız koşular |
-| `logs\` | Uygulama logları (gitignore'da) |
+| `logs\` | Uygulama logları (repoya eklenmez) |
 
 Sütunlar:
 
 ```
-engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes
+engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,
+window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost
 ```
 
-| Sütun | Değerler / açıklama |
-|---|---|
-| `engine` | `unity`, `godot` |
-| `paradigm` | `oop`, `dod` (Unity DOTS = `unity` + `dod`) |
-| `scenario` | `S1` |
-| `mean_frame_time_ms` | 10 s ölçüm penceresindeki frame time'ların ortalaması |
-| `mean_fps` | `1000 / mean_frame_time_ms`. Yayınlanan `AvgFPS` ile aynı tanım, per-frame FPS ortalaması değil |
-| `process_private_bytes` | Warmup bitiminde okunan private bytes (bayt) |
+- `mean_fps` = `1000 / mean_frame_time_ms`. Yayınlanan `AvgFPS` ile aynı
+  tanımdır, per-frame FPS ortalaması değildir.
+- `window_mode` / `render_*` warmup sonunda ölçülen gerçek değerlerdir.
+  Profilin beklediğinden farklıysa satır yazılmaz (kod 8).
 
 ## Elle (HUD ile) kullanım
 
-Exe argümansız açıldığında her şey eskisi gibi çalışır: HUD butonları,
-"Tüm Testler" ve eski CSV biçimi.
+Exe argümansız açıldığında HUD ile çalışır. Varsayılan profil `parity`'dir;
+makaledeki koşul için `--profile=published` ver (Godot'ta: `-- --profile=published`).

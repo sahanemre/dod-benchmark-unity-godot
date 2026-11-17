@@ -23,6 +23,19 @@ inline float MovementWorld::range_float(float lo, float hi) {
 MovementWorld::MovementWorld() {}
 MovementWorld::~MovementWorld() {}
 
+void MovementWorld::set_seed(int64_t p_seed) {
+	// S1 parity profili: seed = 1000 + run_index. Ardisik seed'ler xorshift'te
+	// iliskili baslangiclar verir; murmur3 fmix32 ile karistirilir. Cagrilmazsa
+	// (published) RNG orijinal sabit baslangic durumuyla calisir.
+	uint32_t h = static_cast<uint32_t>(p_seed);
+	h ^= h >> 16;
+	h *= 0x85ebca6bu;
+	h ^= h >> 13;
+	h *= 0xc2b2ae35u;
+	h ^= h >> 16;
+	rng_state = (h != 0u) ? h : 0x9e3779b9u;
+}
+
 void MovementWorld::spawn(int p_count, float p_speed, Vector2 screen_min, Vector2 screen_max) {
 	entity_count = p_count < 0 ? 0 : p_count;
 
@@ -108,4 +121,5 @@ void MovementWorld::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_buffer"), &MovementWorld::get_buffer);
 	ClassDB::bind_method(D_METHOD("get_count"), &MovementWorld::get_count);
 	ClassDB::bind_method(D_METHOD("clear"), &MovementWorld::clear);
+	ClassDB::bind_method(D_METHOD("set_seed", "seed"), &MovementWorld::set_seed);
 }

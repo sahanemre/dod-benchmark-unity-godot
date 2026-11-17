@@ -1,14 +1,25 @@
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// Benchmark orkestratoru (Unity DOTS / hybrid).
 /// Tek sorumluluk: test akisini yonetmek. Entity olusturma EntityFactory'de,
-/// hareket MovementSystem'de, istatistik/CSV/UI ayri siniflarda.
+/// hareket MovementSystem'de, istatistik/CSV/UI ayri siniflarda. Gozetimsiz
+/// S1 kosusunun olcum disi kismi S1RunSession'dadir.
 ///
 /// "Hybrid" yaklasim: MonoBehaviour (UI + benchmark yonetimi) + ECS (workload).
 /// DOD prensibi olculen is yukunde (MovementSystem + data component'lar) yasar.
+///
+/// Profiller (bkz. RunArgs):
+///   published: makaledeki kosullar — tek beyaz materyal (entity basina renk
+///              yok), orijinal URP pipeline (post-processing, skybox, depth +
+///              opaque kopyalari, golgeli isik), orijinal RNG.
+///   parity   : entity basina renk (URPMaterialPropertyBaseColor, isiksiz
+///              URP/Unlit), "lean" pipeline, seed = 1000 + run_index.
+///              --dots-pipeline=original ile yalnizca pipeline etkisi ayrilir.
 /// </summary>
 public class DOTSBenchmarkSpawner : MonoBehaviour
 {
@@ -21,11 +32,15 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     public Mesh entityMesh;
     public Material entityMaterial;
 
+    // parity: dort konfigurasyon gibi isiksiz; DOTS instancing ile _BaseColor destekler.
+    private const string ParityShader = "Universal Render Pipeline/Unlit";
+
     // Ayrik sorumluluklar
     private EntityFactory factory;
     private readonly FrameStatistics stats = new FrameStatistics();
     private readonly CsvExporter csv = new CsvExporter();
     private readonly BenchmarkHUD hud = new BenchmarkHUD();
+    private S1RunSession session;
 
     // Test durumu
     private bool isTesting = false;
@@ -33,7 +48,11 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     private int currentTestIndex = -1;
     private bool allTestsMode = false;
 
-    // Bellek olcum
+    // Profil ayarlari
+    private bool perEntityColor = false;     // parity: on, published: off
+    private string pipelineName = "original";
+
+    // Bellek olcum (eski, motor sayaci; yalnizca HUD/elle kullanimda)
     private long memoryAtStart = 0;
     private long memoryDuringTest = 0;
 
@@ -42,18 +61,15 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     private float currentFrameTime = 0f;
     private string statusText = "Hazir. Test secin ve baslatin.";
 
-    // OS duzeyi bellek: warmup biter bitmez bir kez okunur (process private bytes)
-    private long privateBytesAfterWarmup = -1;
-    private bool privateBytesRecorded = false;
-
-    // Gozetimsiz kosu (komut satirindan --n verildiginde)
-    private RunArgs runArgs;
-    private int unattendedIndex = -1;
-    private bool unattendedStarted = false;
-    private float idleTimer = 0f;
-
     void Start()
     {
+        session = new S1RunSession("unity", "dod", "[DOTS Benchmark]", System.Environment.GetCommandLineArgs());
+
+        // Odak kaybinda da calismaya devam et; kosu sirasinda odak kaybedilirse
+        // CSV'de focus_lost=1 olarak isaretlenir.
+        Application.runInBackground = true;
+        DisplayProfile.Apply(session.Parity);
+
         // VSync KAPALI + FPS sinirsiz: aksi halde frame time ekran yenileme
         // hizina kilitlenir ve gercek is yuku olculmez. Benchmark icin sart.
         QualitySettings.vSyncCount = 0;
@@ -68,10 +84,15 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         hud.OnSelect = i => hud.SelectedIndex = i;
         hud.OnStartSingle = () => { csv.Reset(); StartTest(hud.SelectedIndex); };
         hud.OnStartAll = () => { allTestsMode = true; csv.Reset(); StartTest(0); };
+        if (session.HudEnabled)
+            gameObject.AddComponent<HudDrawer>().Draw = DrawHud;
 
         // Arguman kontrolu render/DOTS kurulumundan once: kurulum yarida
         // kalsa bile gozetimsiz kosu hata koduyla cikabilsin.
-        SetupUnattended();
+        if (!session.Setup(entityCounts)) return;
+
+        perEntityColor = session.Parity;
+        pipelineName = session.Args.DotsPipeline;
 
         EntityManager entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
 
@@ -81,11 +102,14 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         float2 screenMin = new float2(-width + 0.5f, -height + 0.5f);
         float2 screenMax = new float2(width - 0.5f, height - 0.5f);
 
+        if (pipelineName == "lean")
+            ApplyLeanPipeline(cam);
+
         if (entityMesh == null)
             entityMesh = EntityFactory.CreateQuadMesh();
 
         if (entityMaterial == null)
-            entityMaterial = CreateDefaultMaterial();
+            entityMaterial = session.Parity ? CreateParityMaterial() : CreateDefaultMaterial();
 
         if (entityMaterial == null)
         {
@@ -93,38 +117,18 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
                          "Inspector'da Entity Material ata VEYA URP/Unlit'i\n" +
                          "Project Settings > Graphics > Always Included Shaders'a ekle.";
             Debug.LogError("[DOTS Benchmark] " + statusText);
+            if (session.WaitingToStart)
+                session.Fail(S1RunSession.ExitShaderMissing, "Entity materyali olusturulamadi.");
             return;
         }
+
+        Debug.Log($"[DOTS Benchmark] entity shader: {entityMaterial.shader.name} | " +
+                  $"renk: {(perEntityColor ? "entity basina" : "tek beyaz")} | pipeline: {pipelineName}");
 
         factory = new EntityFactory(entityManager, entityMesh, entityMaterial, moveSpeed, screenMin, screenMax);
-    }
 
-    /// <summary>
-    /// --n verilmisse gozetimsiz moda gecer. Gecersiz arguman veya listede
-    /// olmayan N hata koduyla cikar (calistirma scripti bunu kaydeder).
-    /// </summary>
-    void SetupUnattended()
-    {
-        runArgs = RunArgs.Parse(System.Environment.GetCommandLineArgs());
-        if (!runArgs.Active) return;
-
-        if (runArgs.Error != null)
-        {
-            Debug.LogError($"[DOTS Benchmark] {runArgs.Error}");
-            Application.Quit(2);
-            return;
-        }
-
-        unattendedIndex = System.Array.IndexOf(entityCounts, runArgs.N);
-        if (unattendedIndex < 0)
-        {
-            Debug.LogError($"[DOTS Benchmark] N={runArgs.N} entityCounts listesinde yok.");
-            Application.Quit(2);
-            return;
-        }
-
-        statusText = $"Gozetimsiz kosu: N={runArgs.N:N0}, run={runArgs.RunIndex}";
-        Debug.Log($"[DOTS Benchmark] {statusText} -> {runArgs.OutPath}");
+        if (session.WaitingToStart)
+            statusText = $"Gozetimsiz kosu: N={session.Args.N:N0}, run={session.Args.RunIndex}";
     }
 
     /// <summary>
@@ -132,6 +136,7 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     /// denenir. Hicbiri bulunamazsa null doner (Start crash etmek yerine
     /// kullaniciya talimat gosterir). Not: DOTS/Entities Graphics ile entity
     /// cizimi icin URP shader'i sart — fallback'ler yalnizca crash'i onler.
+    /// published profilinde aynen bu secim kullanilir (makaledeki davranis).
     /// </summary>
     static Material CreateDefaultMaterial()
     {
@@ -155,6 +160,42 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// parity: yalnizca URP/Unlit kabul edilir (isiksiz + _BaseColor icin DOTS
+    /// instancing destegi). Build'de yoksa null doner ve kosu hata koduyla biter.
+    /// </summary>
+    static Material CreateParityMaterial()
+    {
+        Shader shader = Shader.Find(ParityShader);
+        return shader != null ? new Material(shader) { color = Color.white } : null;
+    }
+
+    /// <summary>
+    /// "lean" pipeline: URP 3D sablonundan gelen, is yukuyle ilgisiz frame basi
+    /// maliyetleri kapatir; Unity OOP (URP 2D) kosullarina yaklastirir.
+    /// - post-processing kapali (Bloom, Vignette, Tonemapping; Global Volume devre disi)
+    /// - skybox yerine duz renk temizleme (Unity OOP ile ayni arka plan rengi)
+    /// - depth ve opaque texture kopyalari kapali
+    /// - golge kapali (kamera ve isiklar)
+    /// Kamera/dunya boyutu degismez.
+    /// </summary>
+    static void ApplyLeanPipeline(Camera cam)
+    {
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = new Color(0.19215687f, 0.3019608f, 0.4745098f, 0f);
+
+        var cameraData = cam.GetUniversalAdditionalCameraData();
+        cameraData.renderPostProcessing = false;
+        cameraData.requiresDepthOption = CameraOverrideOption.Off;
+        cameraData.requiresColorOption = CameraOverrideOption.Off;
+        cameraData.renderShadows = false;
+
+        foreach (var light in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
+            light.shadows = LightShadows.None;
+        foreach (var volume in Object.FindObjectsByType<Volume>(FindObjectsSortMode.None))
+            volume.enabled = false;
+    }
+
     void Update()
     {
         currentFrameTime = Time.unscaledDeltaTime * 1000f;
@@ -164,21 +205,17 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         // bir bekleme ile testi baslatir. Manuel akista StartTest OnGUI'de
         // (Update'ten sonra) cagrilir; ayni zamanlamayi korumak icin burada
         // baslatip bu frame'in Update'ini bitiriyoruz.
-        if (unattendedIndex >= 0 && !unattendedStarted)
+        if (session.WaitingToStart)
         {
-            idleTimer += Time.unscaledDeltaTime;
-            if (idleTimer >= runArgs.IdleDelay)
+            if (session.TickIdle(Time.unscaledDeltaTime))
             {
-                unattendedStarted = true;
                 if (factory == null)
                 {
-                    // Render/DOTS kurulumu basarisiz (orn. shader bulunamadi)
-                    Debug.LogError("[DOTS Benchmark] EntityFactory kurulamadi; kosu iptal.");
-                    Application.Quit(6);
+                    session.Fail(S1RunSession.ExitSetupFailed, "EntityFactory kurulamadi; kosu iptal.");
                     return;
                 }
                 csv.Reset();
-                StartTest(unattendedIndex);
+                StartTest(session.UnattendedIndex);
             }
             return;
         }
@@ -187,28 +224,23 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
 
         testTimer += Time.unscaledDeltaTime;
 
+        // Warmup'in son ~100 ms'sinde OS bellegi + goruntu bilgisi (gozetimsiz kosu)
+        session.AfterTimerAdvance(testTimer, Time.unscaledDeltaTime);
+
         // Ilk 3 saniye warmup — veriye dahil etme
         if (testTimer > 3f)
-        {
             stats.AddSample(currentFrameTime);
 
-            // Warmup bitti: OS duzeyi bellegi bir kez oku
-            if (!privateBytesRecorded)
-            {
-                privateBytesAfterWarmup = ProcessMemory.GetPrivateBytes();
-                privateBytesRecorded = true;
-            }
-        }
-
-        // Bellek olcumu (test ortasinda)
-        if (testTimer > testDuration / 2f && memoryDuringTest == 0)
+        // Eski bellek olcumu (motor sayaci, test ortasinda). Gozetimsiz kosuda
+        // kapali: olcum penceresinde ornekleme yapilmaz.
+        if (!session.Started && testTimer > testDuration / 2f && memoryDuringTest == 0)
             memoryDuringTest = System.GC.GetTotalMemory(false);
 
         if (testTimer >= testDuration + 3f)
         {
             EndCurrentTest();
         }
-        else
+        else if (session.HudEnabled)
         {
             statusText = $"Test: {entityCounts[currentTestIndex]:N0} entity | " +
                          $"FPS: {currentFPS:F0} | Frame: {currentFrameTime:F2}ms | " +
@@ -223,14 +255,16 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         testTimer = 0f;
         stats.Reset();
         memoryDuringTest = 0;
-        privateBytesAfterWarmup = -1;
-        privateBytesRecorded = false;
+        if (session.Started) session.OnTestStarted();
 
         System.GC.Collect();
         System.GC.WaitForPendingFinalizers();
-        memoryAtStart = System.GC.GetTotalMemory(true);
+        if (!session.Started)
+            memoryAtStart = System.GC.GetTotalMemory(true);
 
-        factory.Spawn(entityCounts[countIndex]);
+        // parity: seed = 1000 + run_index (pozisyon, hiz, renk). published: orijinal (saat).
+        uint? seed = session.Parity ? (uint)session.Args.Seed : (uint?)null;
+        factory.Spawn(entityCounts[countIndex], seed, perEntityColor);
         Debug.Log($"[DOTS Benchmark] Test basladi: {entityCounts[countIndex]:N0} entity");
     }
 
@@ -238,9 +272,9 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     {
         isTesting = false;
 
-        if (unattendedStarted)
+        if (session.Started)
         {
-            FinishUnattended();
+            session.Finish(stats, testDuration, perEntityColor ? "on" : "off", pipelineName);
             return;
         }
 
@@ -271,47 +305,13 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Gozetimsiz kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
-    /// Cikis kodlari: 0 basarili, 2 gecersiz arguman, 3 ornek yok,
-    /// 4 bellek okunamadi, 5 yazma hatasi, 6 DOTS/render kurulumu basarisiz.
-    /// </summary>
-    void FinishUnattended()
+    void OnApplicationFocus(bool hasFocus)
     {
-        int exitCode = 0;
-
-        if (stats.SampleCount == 0)
-        {
-            Debug.LogError("[DOTS Benchmark] Olcum penceresinde hic ornek yok.");
-            exitCode = 3;
-        }
-        else if (privateBytesAfterWarmup < 0)
-        {
-            Debug.LogError("[DOTS Benchmark] Process private bytes okunamadi.");
-            exitCode = 4;
-        }
-        else
-        {
-            BenchmarkResult result = stats.Compute(runArgs.N, 0f, testDuration);
-            try
-            {
-                RunCsvWriter.Write(runArgs.OutPath, "unity", "dod", "S1", runArgs.N, runArgs.RunIndex,
-                    result.AvgFrameTime, result.AvgFPS, privateBytesAfterWarmup);
-                Debug.Log($"[DOTS Benchmark] Kosu tamamlandi: N={runArgs.N:N0} run={runArgs.RunIndex} | " +
-                          $"Ort: {result.AvgFrameTime:F3}ms ({result.AvgFPS:F1} FPS) | " +
-                          $"Private bytes: {privateBytesAfterWarmup:N0}");
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[DOTS Benchmark] Sonuc yazilamadi: {e}");
-                exitCode = 5;
-            }
-        }
-
-        Application.Quit(exitCode);
+        session?.OnFocusChanged(hasFocus, isTesting);
     }
 
-    void OnGUI()
+    /// <summary>HudDrawer.OnGUI tarafindan cagrilir (HUD aciksa).</summary>
+    void DrawHud()
     {
         hud.IsTesting = isTesting;
         hud.Fps = currentFPS;

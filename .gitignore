@@ -66,4 +66,4 @@ results/benchmarks/*.png
 results/benchmarks/*.pdf
 !results/benchmarks/*.csv
 # S1 gozetimsiz kosu: uygulama loglari repoya eklenmez (CSV'ler ve failures.log eklenir)
-results/benchmarks/s1/logs/
+results/benchmarks/*/logs/

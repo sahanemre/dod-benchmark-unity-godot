@@ -68,8 +68,12 @@ dod-benchmark-dod/
 
    Ayni komut ortak bellek olcum eklentisini (`../procmem`, OS duzeyi
    process private bytes) de derler: `libprocmem...dll` hem `demo/bin/`
-   altina hem Godot OOP projesinin `bin/` klasorune konur. Ayrintilar:
-   `tools/S1_CALISTIRMA.md`.
+   altina hem Godot OOP projesinin `bin/` klasorune konur.
+
+   S1 yeniden kosusu icin: parity profili `template_release` DLL'ini
+   (`MovementWorld.set_seed` ile) kullanir; published profili makaledeki
+   `template_debug` DLL'inin kendisini kullanir, bu yuzden `template_debug`
+   yeniden derlenmemelidir. Ayrintilar: `tools/S1_CALISTIRMA.md`.
 
 3. `demo/` klasorunu Godot'ta ac ve `Main.tscn`'i calistir.
    `bin/movementdod.gdextension` derlenen kutuphaneyi otomatik yukler.

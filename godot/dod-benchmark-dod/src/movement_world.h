@@ -61,6 +61,10 @@ public:
 
 	int get_count() const;
 	void clear();
+
+	// RNG baslangic durumu (S1 parity: seed = 1000 + run_index). Hareket
+	// dongusunu etkilemez; yalnizca spawn'daki baslangic degerlerini belirler.
+	void set_seed(int64_t p_seed);
 };
 
 } // namespace godot

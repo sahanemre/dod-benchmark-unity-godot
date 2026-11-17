@@ -8,13 +8,36 @@ class_name RunCsvWriter extends RefCounted
 ## kalmis bir dosya "tamamlanmis" sanilmaz.
 ## GDScript % formati her zaman nokta ondalik ayirici kullanir.
 
-const HEADER := "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes"
+const HEADER := "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost"
+const COLUMNS := ["engine", "paradigm", "scenario", "N", "run_index", "mean_frame_time_ms",
+	"mean_fps", "process_private_bytes", "window_mode", "render_width", "render_height",
+	"dots_color", "profile", "dots_pipeline", "focus_lost"]
+
+
+## Satiri sutun sirasina gore bicimlendirir; eksik sutun varsa "" doner.
+static func format_row(row: Dictionary) -> String:
+	var parts := PackedStringArray()
+	for col in COLUMNS:
+		if not row.has(col):
+			push_error("[Benchmark] CSV sutunu eksik: " + col)
+			return ""
+		var v = row[col]
+		match col:
+			"mean_frame_time_ms":
+				parts.append("%.4f" % v)
+			"mean_fps":
+				parts.append("%.2f" % v)
+			_:
+				parts.append(str(v))
+	return ",".join(parts)
 
 
 ## Basariliysa true doner.
-static func write(path: String, engine: String, paradigm: String, scenario: String,
-		n: int, run_index: int, mean_frame_time_ms: float, mean_fps: float,
-		private_bytes: int) -> bool:
+static func write(path: String, row: Dictionary) -> bool:
+	var line := format_row(row)
+	if line.is_empty():
+		return false
+
 	var dir := path.get_base_dir()
 	if not dir.is_empty() and not DirAccess.dir_exists_absolute(dir):
 		var mk_err := DirAccess.make_dir_recursive_absolute(dir)
@@ -27,11 +50,7 @@ static func write(path: String, engine: String, paradigm: String, scenario: Stri
 	if f == null:
 		push_error("[Benchmark] Dosya acilamadi: %s (hata %d)" % [tmp, FileAccess.get_open_error()])
 		return false
-	f.store_string(HEADER + "\n")
-	f.store_string("%s,%s,%s,%d,%d,%.4f,%.2f,%d\n" % [
-		engine, paradigm, scenario, n, run_index,
-		mean_frame_time_ms, mean_fps, private_bytes
-	])
+	f.store_string(HEADER + "\n" + line + "\n")
 	f.close()
 
 	if FileAccess.file_exists(path):

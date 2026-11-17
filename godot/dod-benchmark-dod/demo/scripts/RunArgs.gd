@@ -1,21 +1,38 @@
 class_name RunArgs extends RefCounted
 
-## Gozetimsiz (unattended) kosu argumanlari.
+## S1 komut satiri argumanlari.
 ## Tek sorumluluk: komut satirini okumak ve dogrulamak.
 ##
 ## Godot kullanici argumanlari "--" isaretinden SONRA verilir:
-##   oyun.exe -- --n=50000 --run-index=3 --out=C:/sonuc/x.csv
+##   oyun.exe -- --profile=parity --n=50000 --run-index=3 --out=C:/sonuc/x.csv
 ## ("--n 50000" bicimi de kabul edilir.)
 ##
-## --n verilmezse active=false olur ve uygulama eskisi gibi HUD ile manuel
-## calisir (yayinlanan olcum akisi degismez).
+## --profile  published | parity   (varsayilan parity)
+##   published: makaledeki kosullarin aynisi
+##   parity   : dort konfigurasyonda esit goruntu/render kosullari
+## --dots-pipeline original | lean  (yalnizca Unity DOTS'ta anlamli; burada
+##   kabul edilir ve yok sayilir, CSV'ye "na" yazilir)
+##
+## --n verilmezse unattended=false olur ve uygulama HUD ile manuel calisir.
 
-var active: bool = false      ## --n verildi mi?
+## parity profilinde seed = BASE_SEED + run_index (dort konfigurasyonda ayni).
+const BASE_SEED := 1000
+
+var unattended: bool = false  ## --n verildi mi?
 var n: int = 0                ## entity sayisi
-var run_index: int = 0        ## tekrar numarasi (1..R)
+var run_index: int = 0        ## tekrar numarasi (1..R); manuel modda 0
 var out_path: String = ""     ## tek satirlik CSV'nin yazilacagi dosya
 var idle_delay: float = 2.0   ## testi baslatmadan once bosta bekleme (s)
+var profile: String = "parity"
 var error: String = ""        ## bos degilse argumanlar gecersiz
+
+
+func is_parity() -> bool:
+	return profile == "parity"
+
+
+func run_seed() -> int:
+	return BASE_SEED + run_index
 
 
 static func parse(args: PackedStringArray) -> RunArgs:
@@ -37,10 +54,24 @@ static func parse(args: PackedStringArray) -> RunArgs:
 		i += 1
 
 	var r := RunArgs.new()
+
+	# Profil manuel modda da gecerli
+	if map.has("profile"):
+		var prof := String(map["profile"]).to_lower()
+		if prof != "published" and prof != "parity":
+			r.error = "Gecersiz --profile degeri: '%s' (published | parity)" % prof
+			return r
+		r.profile = prof
+	if map.has("dots-pipeline"):
+		var pipe := String(map["dots-pipeline"]).to_lower()
+		if pipe != "original" and pipe != "lean":
+			r.error = "Gecersiz --dots-pipeline degeri: '%s' (original | lean)" % pipe
+			return r
+
 	if not map.has("n"):
 		return r
 
-	r.active = true
+	r.unattended = true
 	var n_str: String = map["n"]
 	var ri_str: String = map.get("run-index", "")
 	var out_str: String = map.get("out", "")

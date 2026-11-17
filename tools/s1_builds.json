@@ -1,6 +1,15 @@
 {
-  "unity-oop":  "%USERPROFILE%/Documents/benchmark-oop/DODBenchmark-OOP.exe",
-  "unity-dots": "%USERPROFILE%/Documents/benchmark-dod/DODBenchmark-DOTS.exe",
-  "godot-oop":  "%USERPROFILE%/Documents/benchmark-godot-oop/dod-benchmark-oop.exe",
-  "godot-dod":  "%USERPROFILE%/Documents/benchmark-godot-dod/dod-benchmark-dod (native C++).exe"
+  "published": {
+    "unity-oop":  "%USERPROFILE%/Documents/s1-builds/unity-oop/DODBenchmark-OOP.exe",
+    "unity-dots": "%USERPROFILE%/Documents/s1-builds/unity-dots/DODBenchmark-DOTS.exe",
+    "godot-oop":  "%USERPROFILE%/Documents/s1-builds/godot-oop-debug/dod-benchmark-oop.exe",
+    "godot-dod":  "%USERPROFILE%/Documents/s1-builds/godot-dod-debug/dod-benchmark-dod (native C++).exe"
+  },
+  "parity": {
+    "unity-oop":  "%USERPROFILE%/Documents/s1-builds/unity-oop/DODBenchmark-OOP.exe",
+    "unity-dots": "%USERPROFILE%/Documents/s1-builds/unity-dots/DODBenchmark-DOTS.exe",
+    "godot-oop":  "%USERPROFILE%/Documents/s1-builds/godot-oop-release/dod-benchmark-oop.exe",
+    "godot-dod":  "%USERPROFILE%/Documents/s1-builds/godot-dod-release/dod-benchmark-dod (native C++).exe"
+  },
+  "published_godot_dod_reference_dll": "%USERPROFILE%/Documents/benchmark-godot-dod/libmovementdod.windows.template_debug.x86_64.dll"
 }

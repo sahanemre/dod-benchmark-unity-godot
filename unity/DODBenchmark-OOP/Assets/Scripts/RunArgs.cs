@@ -3,23 +3,37 @@ using System.Collections.Generic;
 using System.Globalization;
 
 /// <summary>
-/// Gozetimsiz (unattended) kosu argumanlari.
+/// S1 komut satiri argumanlari.
 /// Tek sorumluluk: komut satirini okumak ve dogrulamak.
 ///
-/// Ornek: DODBenchmark-OOP.exe --n 50000 --run-index 3 --out C:/sonuc/x.csv
-/// ("--n=50000" bicimi de kabul edilir.)
+/// Ornek: DODBenchmark-OOP.exe --profile=parity --n 50000 --run-index 3 --out C:/sonuc/x.csv
+/// ("--k=v" ve "--k v" bicimlerinin ikisi de kabul edilir.)
 ///
-/// --n verilmezse Active=false olur ve uygulama eskisi gibi HUD ile
-/// manuel calisir (yayinlanan olcum akisi degismez).
+/// --profile  published | parity   (varsayilan parity)
+///   published: makaledeki kosullarin aynisi
+///   parity   : dort konfigurasyonda esit goruntu/render kosullari
+/// --dots-pipeline original | lean (yalnizca Unity DOTS; varsayilan profile gore:
+///   published -> original, parity -> lean)
+///
+/// --n verilmezse Unattended=false olur ve uygulama HUD ile manuel calisir.
 /// </summary>
 public class RunArgs
 {
-    public bool Active;        // --n verildi mi?
-    public int N;              // entity sayisi
-    public int RunIndex;       // tekrar numarasi (1..R)
-    public string OutPath;     // tek satirlik CSV'nin yazilacagi dosya
-    public float IdleDelay = 2f; // testi baslatmadan once bosta bekleme (s)
-    public string Error;       // null degilse argumanlar gecersiz
+    /// <summary>parity profilinde seed = BaseSeed + run_index (dort konfigurasyonda ayni).</summary>
+    public const int BaseSeed = 1000;
+
+    public bool Unattended;          // --n verildi mi?
+    public int N;                    // entity sayisi
+    public int RunIndex;             // tekrar numarasi (1..R); manuel modda 0
+    public string OutPath;           // tek satirlik CSV'nin yazilacagi dosya
+    public float IdleDelay = 2f;     // testi baslatmadan once bosta bekleme (s)
+    public string Profile = "parity";
+    public string DotsPipelineArg;   // null = profilin varsayilani
+    public string Error;             // null degilse argumanlar gecersiz
+
+    public bool IsParity => Profile == "parity";
+    public int Seed => BaseSeed + RunIndex;
+    public string DotsPipeline => DotsPipelineArg ?? (IsParity ? "lean" : "original");
 
     public static RunArgs Parse(string[] args)
     {
@@ -46,10 +60,32 @@ public class RunArgs
         }
 
         var r = new RunArgs();
-        if (!map.ContainsKey("n")) return r;
-
-        r.Active = true;
         var ci = CultureInfo.InvariantCulture;
+
+        // Profil ve DOTS pipeline manuel modda da gecerli
+        if (map.TryGetValue("profile", out string prof))
+        {
+            prof = prof.ToLowerInvariant();
+            if (prof != "published" && prof != "parity")
+            {
+                r.Error = $"Gecersiz --profile degeri: '{prof}' (published | parity)";
+                return r;
+            }
+            r.Profile = prof;
+        }
+        if (map.TryGetValue("dots-pipeline", out string pipe))
+        {
+            pipe = pipe.ToLowerInvariant();
+            if (pipe != "original" && pipe != "lean")
+            {
+                r.Error = $"Gecersiz --dots-pipeline degeri: '{pipe}' (original | lean)";
+                return r;
+            }
+            r.DotsPipelineArg = pipe;
+        }
+
+        if (!map.ContainsKey("n")) return r;
+        r.Unattended = true;
 
         if (!int.TryParse(map["n"], NumberStyles.Integer, ci, out r.N) || r.N <= 0)
             r.Error = $"Gecersiz --n degeri: '{map["n"]}'";
