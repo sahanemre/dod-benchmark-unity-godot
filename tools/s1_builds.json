@@ -11,5 +11,5 @@
     "godot-oop":  "%USERPROFILE%/Documents/s1-builds/godot-oop-release/dod-benchmark-oop.exe",
     "godot-dod":  "%USERPROFILE%/Documents/s1-builds/godot-dod-release/dod-benchmark-dod (native C++).exe"
   },
-  "published_godot_dod_reference_dll": "%USERPROFILE%/Documents/benchmark-godot-dod/libmovementdod.windows.template_debug.x86_64.dll"
+  "published_godot_dod_reference_dll": "%USERPROFILE%/Documents/s1-builds/_paper-reference/libmovementdod.windows.template_debug.x86_64.dll"
 }

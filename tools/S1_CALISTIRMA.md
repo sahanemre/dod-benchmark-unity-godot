@@ -93,16 +93,24 @@ scons platform=windows target=template_release
 Exe adları `s1_builds.json` ile aynı olmalı: `dod-benchmark-oop.exe` ve
 `dod-benchmark-dod (native C++).exe`.
 
-**Published Godot DOD için zorunlu adım:** Debug export'tan sonra makaledeki
-DLL'i export klasörüne kopyala:
+**Published Godot DOD için zorunlu adımlar:**
 
-```powershell
-copy "$env:USERPROFILE\Documents\benchmark-godot-dod\libmovementdod.windows.template_debug.x86_64.dll" `
-     "$env:USERPROFILE\Documents\s1-builds\godot-dod-debug\"
-```
+1. **Hiçbir export'tan önce** makaledeki DLL'i yedekle. Godot DOD export
+   preset'inin varsayılan yolu eski build klasörüdür (`Documents\benchmark-godot-dod`);
+   oraya export edilirse makaledeki DLL'in üstüne yazılır.
+   ```powershell
+   New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\s1-builds\_paper-reference" | Out-Null
+   Copy-Item "$env:USERPROFILE\Documents\benchmark-godot-dod\libmovementdod.windows.template_debug.x86_64.dll" `
+             "$env:USERPROFILE\Documents\s1-builds\_paper-reference\"
+   ```
+2. Debug export'tan sonra yedekteki DLL'i export klasörüne kopyala:
+   ```powershell
+   Copy-Item "$env:USERPROFILE\Documents\s1-builds\_paper-reference\libmovementdod.windows.template_debug.x86_64.dll" `
+             "$env:USERPROFILE\Documents\s1-builds\godot-dod-debug\" -Force
+   ```
 
-Runner, published Godot DOD koşmadan önce bu DLL'i SHA-256 ile makaledeki
-dosyayla karşılaştırır. Farklıysa hiç koşmadan durur.
+Runner, published Godot DOD koşmadan önce bu DLL'i SHA-256 ile
+`_paper-reference` içindeki dosyayla karşılaştırır. Farklıysa hiç koşmadan durur.
 
 ### Unity (iki proje)
 
