@@ -27,7 +27,7 @@ Her uygulama `--profile=published|parity` alır. Varsayılan `parity`'dir.
 | Görüntü (Godot) | 1280×720 pencere | Exclusive fullscreen 1920×1080; 1280×720 mantıksal dünya `canvas_items/keep` ile 1,5 kat ölçeklenir |
 | Entity boyutu (ekranda) | Unity ≈10,1 px, Godot 8 px | Dördü de 10,125 px (Godot 6,75 mantıksal px) |
 | Unity OOP sprite | Işıklı (Sprite-Lit-Default) | Işıksız (Sprite-Unlit-Default) |
-| Unity DOTS renk | Tek beyaz materyal | Entity başına renk (`URPMaterialPropertyBaseColor`, URP/Unlit) |
+| Unity DOTS renk / shader | Tek beyaz materyal, **built-in `Sprites/Default`** shader (aşağıdaki nota bkz.) | Entity başına renk (`URPMaterialPropertyBaseColor`), URP/Unlit |
 | Unity DOTS pipeline | `original` | `lean` (`--dots-pipeline=original` ile değiştirilebilir) |
 | RNG | Orijinal davranış | Sabit seed = 1000 + run_index (pozisyon, hız, renk) |
 | HUD (gözetimsiz koşu) | Açık (her frame) | Kapalı |
@@ -60,6 +60,41 @@ ilgisi olmayan frame başı maliyetleri kapatır:
 - **Duvara çarpma sıklığı farklı.** Godot'ta entity'ler dünyayı yaklaşık
   4,2 s'de geçer (300 px/s, 1260 px), Unity'de yaklaşık 9,1 s'de (3 birim/s,
   27,4 birim). Yani Godot'ta duvara çarpma yaklaşık 2,2 kat daha sıktır.
+
+### Makaledeki Unity DOTS shader'ı: built-in `Sprites/Default`
+
+**Ne oldu?** Makaledeki Unity DOTS entity'leri, Unity'nin built-in (eski render
+hattına ait) `Sprites/Default` shader'ıyla çizildi. Bu, published smoke
+koşusunun logunda doğrulandı:
+`entity shader: Sprites/Default | renk: tek beyaz | pipeline: original`.
+
+**Neden?** Kod sırasıyla URP/Unlit, URP/Lit, Sprites/Default ve Unlit/Color
+deniyordu. URP/Unlit ve URP/Lit build'de yoktu, çünkü hiçbir asset ya da ayar
+bunları build'e almıyordu. `Sprites/Default` ise Unity'nin varsayılan Always
+Included listesinde olduğu için ilk bulunan oldu. Published profili bu seçimi
+aynen tekrarlar. Parity'de URP/Unlit Always Included'a eklendi.
+
+**Entities Graphics ile uyumlu mu?** Bu shader Entities Graphics'in beklediği
+shader türünde değil. Shader kaynağına göre:
+- **DOTS instancing desteği yok.** Yalnızca klasik GPU instancing var
+  (`#pragma multi_compile_instancing`). `DOTS_INSTANCING_ON` varyantı ve
+  `UNITY_DOTS_INSTANCED_PROP` tanımları yok.
+- **SRP Batcher uyumlu değil.** Built-in CG shader'ı; materyal özellikleri
+  `UnityPerMaterial` cbuffer'ında değil.
+- **Saydam kuyrukta çiziliyor.** `Queue=Transparent`, alpha blend
+  (`Blend One OneMinusSrcAlpha`), `ZWrite Off`.
+
+Entities Graphics (BatchRendererGroup) DOTS instancing destekleyen shader
+bekler. Bu shader'ın Entities Graphics'in hızlı yolu dışında kalması ya da
+farklı/fallback bir yoldan çizilmesi muhtemeldir. Üstüne saydam olması
+yüzünden entity başına derinlik sıralaması ve alpha blending maliyeti
+eklenir. Yani makaledeki Unity DOTS render maliyeti, opak ve DOTS instancing
+uyumlu bir shader'a göre büyük olasılıkla daha yüksektir. Bu durum Unity DOTS
+**aleyhine** bir farktır.
+
+**Henüz doğrulanmadı.** Hangi yolun kullanıldığı ve maliyetin büyüklüğü
+ölçülmedi. Kaynak bir GitHub aynasından incelendi; 6000.4.7f1 sürümündeki
+kaynakla birebir aynı olduğu doğrulanmalı (bkz. "Loglardan kontrol").
 
 ## 1. Build'ler (bir kerelik)
 
@@ -157,12 +192,14 @@ powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
 **Loglardan kontrol** (`results\benchmarks\s1_smoke\logs\`):
 - Unity loglarında `[Benchmark] profile=... graphics=...` satırı, kullanılan
   grafik API'yi gösterir. Published satırı, makaledeki API'dir.
-- DOTS logunda `entity shader:` satırı, kullanılan shader'ı gösterir. Published
-  shader'ın makaledekiyle aynı olduğunu doğrulamak için eski build'de ara:
+- DOTS logunda `entity shader:` satırı, kullanılan shader'ı gösterir. Beklenen:
+  published → `Sprites/Default`, parity → `Universal Render Pipeline/Unlit`.
+- Published DOTS'ta Entities Graphics'in `Sprites/Default` için uyarı verip
+  vermediğine bak:
   ```powershell
-  Get-ChildItem "$env:USERPROFILE\Documents\benchmark-dod\*_Data" -Recurse -File |
-    Select-String -SimpleMatch "Universal Render Pipeline/Unlit","Universal Render Pipeline/Lit" -List |
-    Select-Object Path, Pattern
+  Select-String -Path results\benchmarks\s1_smoke\logs\unity-dots_published_*.log `
+    -Pattern "DOTS","BatchRendererGroup","compatib","instancing","error shader","not supported" |
+    Select-Object -First 20
   ```
 
 **Hata kodları** (`failures.log`):
