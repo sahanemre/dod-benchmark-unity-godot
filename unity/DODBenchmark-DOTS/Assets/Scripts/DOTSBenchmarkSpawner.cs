@@ -132,17 +132,23 @@ public class DOTSBenchmarkSpawner : MonoBehaviour
     }
 
     /// <summary>
-    /// Build'de URP shader'lari strip edilebilir; bu yuzden birden fazla shader
-    /// denenir. Hicbiri bulunamazsa null doner (Start crash etmek yerine
-    /// kullaniciya talimat gosterir). Not: DOTS/Entities Graphics ile entity
-    /// cizimi icin URP shader'i sart — fallback'ler yalnizca crash'i onler.
-    /// published profilinde aynen bu secim kullanilir (makaledeki davranis).
+    /// published: makaledeki shader secimini yeniden uretir.
+    ///
+    /// Makaledeki kod sirasiyla URP/Unlit, URP/Lit, Sprites/Default ve
+    /// Unlit/Color deniyordu. URP/Unlit o build'de YOKTU: Graphics ayarlari
+    /// proje olusturuldugundan (2026-05-17) beri degismedi ve shader'i build'e
+    /// alan hicbir referans yoktu. Bu yuzden makalede ilk aday null dondu ve
+    /// bir sonraki mevcut shader kullanildi.
+    /// Artik URP/Unlit parity icin Always Included Shaders'da oldugundan,
+    /// published sirasinda atlanir. Kalan siralama ve secim makaledekiyle
+    /// aynidir; secilen shader Start'ta loglanir ("entity shader: ...").
+    /// Hicbiri bulunamazsa null doner (Start crash etmek yerine talimat gosterir).
     /// </summary>
     static Material CreateDefaultMaterial()
     {
         string[] candidates =
         {
-            "Universal Render Pipeline/Unlit",
+            // "Universal Render Pipeline/Unlit" — makaledeki build'de yoktu (bkz. yukarisi)
             "Universal Render Pipeline/Lit",
             "Sprites/Default",
             "Unlit/Color"
