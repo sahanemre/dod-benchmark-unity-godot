@@ -1,0 +1,2 @@
+engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost
+godot,dod,S1,1000,7,0.8518,1173.95,286969856,windowed,1280,720,na,published,na,0
