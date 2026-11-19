@@ -8,10 +8,10 @@ class_name RunCsvWriter extends RefCounted
 ## kalmis bir dosya "tamamlanmis" sanilmaz.
 ## GDScript % formati her zaman nokta ondalik ayirici kullanir.
 
-const HEADER := "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost"
+const HEADER := "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost,graphics_api"
 const COLUMNS := ["engine", "paradigm", "scenario", "N", "run_index", "mean_frame_time_ms",
 	"mean_fps", "process_private_bytes", "window_mode", "render_width", "render_height",
-	"dots_color", "profile", "dots_pipeline", "focus_lost"]
+	"dots_color", "profile", "dots_pipeline", "focus_lost", "graphics_api"]
 
 
 ## Satiri sutun sirasina gore bicimlendirir; eksik sutun varsa "" doner.

@@ -212,7 +212,7 @@ powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
 | 5 | Sonuç dosyası yazılamadı | Klasör izinleri |
 | 6 | Motor/eklenti kurulumu başarısız | DOTS materyali ya da MovementWorld DLL'i |
 | 7 | `procmem` eklentisi yok | Exe yanında `libprocmem...dll` var mı? |
-| 8 | Görüntü modu/çözünürlük beklenenden farklı | Masaüstü 1920×1080 ve ölçek %100 mü? |
+| 8 | Görüntü modu/çözünürlük 15 s içinde uygulanamadı ya da ölçüm sırasında değişti | Logdaki `goruntu ...` satırlarına bak; masaüstü 1920×1080 ve ölçek %100 mü? |
 | 9 | Gerekli shader build'de yok | Always Included Shaders (parity DOTS: URP/Unlit) |
 | 10 | Build/API profille uyuşmuyor | Development build, Godot şablonu, D3D12 ya da eski DLL |
 
@@ -272,7 +272,42 @@ powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 -MergeOnly
 ```
 
 Diğer parametreler: `-TimeoutSec` (120), `-CooldownSec` (5),
-`-IdleDelaySec` (2), `-BuildsFile`, `-OutDir`.
+`-IdleDelaySec` (2), `-BuildsFile`, `-OutDir`, `-UnityApi`,
+`-KeepUnityScreenPrefs` (aşağıda).
+
+### Unity grafik API'si (`-UnityApi`)
+
+`-UnityApi d3d11,d3d12` Unity koşularını her iki API ile koşar. Runner
+`-force-d3d11` / `-force-d3d12` verir; uygulama aktif API'nin istenenle aynı
+olduğunu doğrular (değilse kod 10). Verilmezse: published zorlanmaz (Unity
+Graphics API listesindeki ilk API, şu an D3D11), parity D3D12. API, CSV'deki
+`graphics_api` sütununa ve (açıkça seçildiyse) dosya adına yazılır.
+Godot için bu seçenek yok sayılır.
+
+Örnek: Unity OOP'ta parity'nin D3D12'sinin etkisini ayırmak için:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run_s1.ps1 `
+  -Configs unity-oop -UnityApi d3d11,d3d12 -N 1000,100000 -Runs 10 `
+  -OutDir results\benchmarks\s1_ab_api
+```
+
+### Unity ekran ayarları ve kayıt defteri
+
+Unity çıkarken ekran modunu/çözünürlüğünü kayıt defterine yazar
+(`HKCU\Software\DefaultCompany\<Ürün>`, `Screenmanager*` değerleri) ve bir
+sonraki açılışta bunlarla başlar. Bu yüzden:
+
+- Runner her Unity koşusundan önce bu değerleri
+  `logs\<koşu>.registry.txt` dosyasına döker ve **siler**
+  (`-KeepUnityScreenPrefs` ile silinmez, yalnızca dökülür).
+- Uygulama, görüntü modu ve çözünürlük profile uyana kadar testi
+  **başlatmaz**. Gerekirse modu her 2 s'de yeniden ister; 15 s içinde
+  uymazsa kod 8 ile çıkar.
+- Uygulama, warmup sonunda modu yeniden kontrol eder. Ölçüm sırasında mod
+  değiştiyse yine kod 8 ile çıkar.
+- Unity logunda `komut satiri:`, `goruntu (acilis):`, `goruntu degisti` ve
+  `goruntu hazir (X s ek bekleme)` satırları geçişi gösterir.
 
 ## Çıktılar
 
@@ -289,8 +324,12 @@ Sütunlar:
 
 ```
 engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,
-window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost
+window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost,graphics_api
 ```
+
+- `graphics_api` = gerçekte kullanılan API (Unity: `d3d11`/`d3d12`, Godot:
+  sürücü adı, örn. `d3d12`). Bu sütundan önce üretilmiş 15 sütunlu kayıtlar
+  da geçerlidir; API koşunun logundan okunur, log yoksa `unrecorded` yazılır.
 
 - `mean_fps` = `1000 / mean_frame_time_ms`. Yayınlanan `AvgFPS` ile aynı
   tanımdır, per-frame FPS ortalaması değildir.

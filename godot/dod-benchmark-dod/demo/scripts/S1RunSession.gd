@@ -46,6 +46,7 @@ var _render_size := Vector2i.ZERO
 var _display_ok := false
 
 var _focus_lost := false
+var _driver := ""
 
 
 func _init(paradigm: String, tag: String, tree: SceneTree) -> void:
@@ -117,6 +118,7 @@ static func mode_name(mode: int) -> String:
 ## false doner. Elle acilista (--n yok) yalnizca profil bilgisini loglar.
 func setup(entity_counts: Array[int]) -> bool:
 	var driver := RenderingServer.get_current_rendering_driver_name()
+	_driver = driver
 	print("%s profile=%s display=%s %dx%d driver=%s debug_build=%s" % [
 		_tag, args.profile, mode_name(expected_mode()), expected_size().x, expected_size().y,
 		driver, OS.is_debug_build()])
@@ -240,6 +242,7 @@ func finish(stats: FrameStatistics, test_duration: float, dots_color: String,
 			"profile": args.profile,
 			"dots_pipeline": dots_pipeline,
 			"focus_lost": 1 if _focus_lost else 0,
+			"graphics_api": _driver,
 		}
 		if RunCsvWriter.write(args.out_path, row):
 			print(_tag, " Kosu tamamlandi: ", RunCsvWriter.format_row(row))

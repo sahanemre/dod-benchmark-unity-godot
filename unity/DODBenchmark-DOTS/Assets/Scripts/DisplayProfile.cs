@@ -60,6 +60,14 @@ public static class DisplayProfile
         }
     }
 
+    /// <summary>Teshis icin anlik goruntu durumu (mod, backbuffer, ekran modu, odak).</summary>
+    public static string CurrentState()
+    {
+        Resolution cur = Screen.currentResolution;
+        return $"{ModeName(Screen.fullScreenMode)} {Screen.width}x{Screen.height} " +
+               $"(ekran {cur.width}x{cur.height}@{cur.refreshRateRatio.value:F0}Hz, odak={Application.isFocused})";
+    }
+
     public static string Describe(bool parity)
     {
         Expected(parity, out var mode, out int w, out int h);

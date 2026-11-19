@@ -33,6 +33,10 @@
     Yalnizca Unity DOTS render pipeline'inin etkisi (parity, geri kalan her sey ayni).
 
 .EXAMPLE
+    .\tools\run_s1.ps1 -Configs unity-oop -UnityApi d3d11,d3d12 -N 100000 -OutDir results\benchmarks\s1_ab_api
+    Unity grafik API'sinin etkisi (parity, yalnizca API degisir).
+
+.EXAMPLE
     .\tools\run_s1.ps1 -Configs godot-oop -N 50000 -RunIndex 7 -Force
     Tek bir kosuyu yeniden alir.
 #>
@@ -50,6 +54,15 @@ param(
 
     # Yalnizca unity-dots icin; bos = profilin varsayilani (published: original, parity: lean)
     [string[]]$DotsPipeline = @(),
+
+    # Yalnizca Unity icin (d3d11, d3d12): -force-d3d11/12 ile API secilir.
+    # Bos = profilin varsayilani (published: zorlanmaz, Unity'nin listesindeki
+    # ilk API; parity: d3d12). Verilirse dosya adina API eklenir.
+    [string[]]$UnityApi = @(),
+
+    # Unity'nin kayit defterine yazdigi ekran ayarlarini (Screenmanager*) her
+    # kosudan once SILME. Varsayilan: silinir (kosular birbirini etkilemesin).
+    [switch]$KeepUnityScreenPrefs,
 
     [ValidateRange(1, 1000)]
     [int]$Runs = 10,
@@ -84,15 +97,19 @@ elseif (-not [System.IO.Path]::IsPathRooted($OutDir)) { $OutDir = Join-Path $Rep
 $LogDir     = Join-Path $OutDir 'logs'
 $FailureLog = Join-Path $OutDir 'failures.log'
 $MergedCsv  = Join-Path $OutDir 's1_runs.csv'
-$Header     = 'engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,' +
+# v2: 16 sutun (graphics_api eklendi). v1 (15 sutun) dosyalar da gecerli sayilir;
+# eksik graphics_api kosunun logundan okunur, log yoksa "unrecorded" yazilir.
+$HeaderV1   = 'engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,' +
               'window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost'
-$ColumnCount = 15
-$RunFileRx  = '^(unity-oop|unity-dots|godot-oop|godot-dod)_(published|parity)(_(original|lean))?_N\d+_run\d+\.csv$'
+$Header     = $HeaderV1 + ',graphics_api'
+$ColumnCount = 16
+$RunFileRx  = '^(unity-oop|unity-dots|godot-oop|godot-dod)_(published|parity)(_(original|lean))?(_(d3d11|d3d12))?_N\d+_run\d+\.csv$'
 
 $ValidConfigs   = @('unity-oop', 'unity-dots', 'godot-oop', 'godot-dod')
 $ValidCounts    = @(1000, 5000, 10000, 50000, 100000)
 $ValidProfiles  = @('published', 'parity')
 $ValidPipelines = @('original', 'lean')
+$ValidApis      = @('d3d11', 'd3d12')
 
 # Konfigurasyon -> motor (komut satiri bicimi motora gore degisir)
 $EngineOf = @{
@@ -102,12 +119,13 @@ $EngineOf = @{
     'godot-dod'  = 'godot'
 }
 
-# Unity player argumanlari: player ilk frame'den dogru modda acilsin.
-# published: makaledeki kosul (borderless fullscreen, yerel 1920x1080, Unity'nin
-#            o zamanki grafik API'si). parity: exclusive 1920x1080 + Direct3D 12.
+# Unity player goruntu argumanlari: player ilk frame'den dogru modda acilsin.
+# published: makaledeki kosul (borderless fullscreen, yerel 1920x1080).
+# parity   : exclusive fullscreen 1920x1080.
+# Grafik API ayri secilir (Get-UnityApi): published zorlanmaz, parity d3d12.
 $UnityProfileArgs = @{
     'published' = '-screen-fullscreen 1 -window-mode borderless -screen-width 1920 -screen-height 1080'
-    'parity'    = '-screen-fullscreen 1 -window-mode exclusive -screen-width 1920 -screen-height 1080 -force-d3d12'
+    'parity'    = '-screen-fullscreen 1 -window-mode exclusive -screen-width 1920 -screen-height 1080'
 }
 
 # Uygulamalarin cikis kodlari (S1RunSession.cs / S1RunSession.gd ile ayni)
@@ -118,7 +136,7 @@ $ExitCodeText = @{
     5  = 'sonuc dosyasi yazilamadi'
     6  = 'motor/eklenti kurulumu basarisiz'
     7  = 'procmem eklentisi yuklenemedi'
-    8  = 'goruntu modu/cozunurluk beklenenden farkli'
+    8  = 'goruntu modu/cozunurluk uygulanamadi ya da olcumde degisti'
     9  = 'gerekli shader build''de yok'
     10 = 'build/grafik API profille uyusmuyor'
 }
@@ -162,6 +180,8 @@ $Profiles = Split-List $Profile
 Assert-InSet $Profiles $ValidProfiles 'Profile'
 $Pipelines = Split-List $DotsPipeline
 Assert-InSet $Pipelines $ValidPipelines 'DotsPipeline'
+$Apis = Split-List $UnityApi
+Assert-InSet $Apis $ValidApis 'UnityApi'
 $Counts = ConvertTo-IntList $N 'N'
 foreach ($count in $Counts) {
     if ($ValidCounts -notcontains $count) {
@@ -184,9 +204,72 @@ function Get-PipelineVariants([string]$Config, [string]$Prof) {
     return ,@('original')
 }
 
-function Get-RunFileName([string]$Config, [string]$Prof, [string]$Pipeline, [int]$EntityCount, [int]$Index) {
-    $variant = if ($Pipeline) { "${Prof}_$Pipeline" } else { $Prof }
+# Unity icin API varyantlari: -UnityApi verilmisse onlar, yoksa tek varyant ($null = profil varsayilani)
+function Get-ApiVariants([string]$Config) {
+    if ($EngineOf[$Config] -ne 'unity' -or $Apis.Count -eq 0) { return ,@($null) }
+    return ,$Apis
+}
+
+# Kosuda zorlanacak API: acik secim, yoksa parity -> d3d12, published -> yok
+function Get-UnityApi([string]$Prof, [string]$ApiVariant) {
+    if ($ApiVariant) { return $ApiVariant }
+    if ($Prof -eq 'parity') { return 'd3d12' }
+    return $null
+}
+
+function Get-RunFileName([string]$Config, [string]$Prof, [string]$Pipeline, [string]$Api, [int]$EntityCount, [int]$Index) {
+    $variant = $Prof
+    if ($Pipeline) { $variant += "_$Pipeline" }
+    if ($Api) { $variant += "_$Api" }
     return ('{0}_{1}_N{2}_run{3:D2}.csv' -f $Config, $variant, $EntityCount, $Index)
+}
+
+# v1 (15 sutun) dosyalar icin graphics_api'yi kosunun logundan oku.
+function Get-ApiFromLog([string]$CsvPath) {
+    $base = Join-Path (Join-Path (Split-Path -Parent $CsvPath) 'logs') ([System.IO.Path]::GetFileNameWithoutExtension($CsvPath))
+    foreach ($log in @("$base.log", "$base.out.log")) {
+        if (-not (Test-Path -LiteralPath $log -PathType Leaf)) { continue }
+        $m = Select-String -LiteralPath $log -Pattern 'profile=\S+ .*?(graphics|driver)=(\S+)' | Select-Object -First 1
+        if ($null -ne $m) {
+            $v = $m.Matches[0].Groups[2].Value
+            switch ($v) {
+                'Direct3D11' { return 'd3d11' }
+                'Direct3D12' { return 'd3d12' }
+                default { return $v.ToLowerInvariant() }
+            }
+        }
+    }
+    return 'unrecorded'
+}
+
+# Unity'nin kayit defterindeki ekran ayarlari (HKCU\Software\<Sirket>\<Urun>,
+# Screenmanager* degerleri): kosudan once loga dokulur ve (varsayilan) silinir.
+# Sirket/urun adi build'in <Urun>_Data\app.info dosyasindan okunur.
+function Reset-UnityScreenPrefs([string]$ExePath, [string]$DumpPath) {
+    if ([Environment]::OSVersion.Platform -ne 'Win32NT') { return }
+    $exeName = [System.IO.Path]::GetFileNameWithoutExtension($ExePath)
+    $company = 'DefaultCompany'
+    $product = $exeName
+    $appInfo = Join-Path (Split-Path -Parent $ExePath) ($exeName + '_Data\app.info')
+    if (Test-Path -LiteralPath $appInfo -PathType Leaf) {
+        $info = @(Get-Content -LiteralPath $appInfo)
+        if ($info.Count -ge 2) { $company = $info[0].Trim(); $product = $info[1].Trim() }
+    }
+    $key = "HKCU:\Software\$company\$product"
+    $dump = New-Object System.Collections.Generic.List[string]
+    $dump.Add("key: $key")
+    if (Test-Path -LiteralPath $key) {
+        $item = Get-Item -LiteralPath $key
+        foreach ($name in ($item.GetValueNames() | Where-Object { $_ -like 'Screenmanager*' })) {
+            $val = $item.GetValue($name)
+            if ($val -is [byte[]]) { $val = ([System.Text.Encoding]::ASCII.GetString($val)).Trim([char]0) }
+            $dump.Add(("{0} = {1}" -f $name, $val))
+            if (-not $KeepUnityScreenPrefs) { Remove-ItemProperty -LiteralPath $key -Name $name }
+        }
+    }
+    else { $dump.Add('(anahtar yok)') }
+    $dump.Add($(if ($KeepUnityScreenPrefs) { '(korundu: -KeepUnityScreenPrefs)' } else { '(Screenmanager* silindi)' }))
+    [System.IO.File]::WriteAllLines($DumpPath, $dump.ToArray())
 }
 
 function Write-Failure([string]$Name, [string]$Reason) {
@@ -199,8 +282,12 @@ function Read-RunRow([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     $lines = @(Get-Content -LiteralPath $Path | Where-Object { $_.Trim() -ne '' })
     if ($lines.Count -ne 2) { return $null }
-    if ($lines[0].Trim() -ne $Header) { return $null }
+    $head = $lines[0].Trim()
     $row = $lines[1].Trim()
+    if ($head -eq $HeaderV1 -and $row.Split(',').Count -eq ($ColumnCount - 1)) {
+        return $row + ',' + (Get-ApiFromLog $Path)
+    }
+    if ($head -ne $Header) { return $null }
     if ($row.Split(',').Count -ne $ColumnCount) { return $null }
     return $row
 }
@@ -221,6 +308,7 @@ function Merge-Results {
             Paradigm = $c[1]
             Profile  = $c[12]
             Pipeline = $c[13]
+            Api      = $c[15]
             Count    = [int]$c[3]
             Run      = [int]$c[4]
             Line     = $row
@@ -229,7 +317,7 @@ function Merge-Results {
 
     $out = New-Object System.Collections.Generic.List[string]
     $out.Add($Header)
-    foreach ($r in ($rows | Sort-Object Profile, Engine, Paradigm, Pipeline, Count, Run)) { $out.Add($r.Line) }
+    foreach ($r in ($rows | Sort-Object Profile, Engine, Paradigm, Pipeline, Api, Count, Run)) { $out.Add($r.Line) }
 
     # UTF-8 (BOM'suz): analiz scriptleri ve Excel icin sorunsuz
     [System.IO.File]::WriteAllLines($MergedCsv, $out.ToArray(), (New-Object System.Text.UTF8Encoding($false)))
@@ -299,13 +387,15 @@ foreach ($k in $indices) {
         foreach ($count in $Counts) {
             foreach ($prof in $Profiles) {
                 foreach ($pipe in (Get-PipelineVariants $cfg $prof)) {
-                    $name = Get-RunFileName $cfg $prof $pipe $count $k
-                    $file = Join-Path $OutDir $name
-                    if (-not $Force -and $null -ne (Read-RunRow $file)) { $skipped++; continue }
-                    $plan.Add([pscustomobject]@{
-                        Config = $cfg; Profile = $prof; Pipeline = $pipe
-                        Count = $count; Run = $k; Out = $file; Name = $name
-                    })
+                    foreach ($api in (Get-ApiVariants $cfg)) {
+                        $name = Get-RunFileName $cfg $prof $pipe $api $count $k
+                        $file = Join-Path $OutDir $name
+                        if (-not $Force -and $null -ne (Read-RunRow $file)) { $skipped++; continue }
+                        $plan.Add([pscustomobject]@{
+                            Config = $cfg; Profile = $prof; Pipeline = $pipe; Api = $api
+                            Count = $count; Run = $k; Out = $file; Name = $name
+                        })
+                    }
                 }
             }
         }
@@ -349,7 +439,9 @@ try {
 
         $logBase = Join-Path $LogDir ([System.IO.Path]::GetFileNameWithoutExtension($job.Out))
         $outArg = $job.Out -replace '\\', '/'
-        $label = if ($job.Pipeline) { "$($job.Profile)/$($job.Pipeline)" } else { $job.Profile }
+        $label = $job.Profile
+        if ($job.Pipeline) { $label += "/$($job.Pipeline)" }
+        if ($job.Api) { $label += "/$($job.Api)" }
 
         Write-Host -NoNewline ("[{0}/{1}] {2,-10} {3,-18} N={4,-6} run={5,-3} ... " -f `
             ($i + 1), $plan.Count, $job.Config, $label, $job.Count, $job.Run)
@@ -361,7 +453,15 @@ try {
         if ($job.Pipeline) { $appArgs += " --dots-pipeline=$($job.Pipeline)" }
 
         if ($EngineOf[$job.Config] -eq 'unity') {
-            $argLine = '{0} -logFile "{1}.log" {2}' -f $UnityProfileArgs[$job.Profile], $logBase, $appArgs
+            # Onceki kosudan kalan ekran ayarlari bu kosuyu etkilemesin
+            Reset-UnityScreenPrefs $exePath "$logBase.registry.txt"
+            $unityArgs = $UnityProfileArgs[$job.Profile]
+            $forceApi = Get-UnityApi $job.Profile $job.Api
+            if ($forceApi) {
+                $unityArgs += " -force-$forceApi"
+                $appArgs += " --graphics-api=$forceApi"
+            }
+            $argLine = '{0} -logFile "{1}.log" {2}' -f $unityArgs, $logBase, $appArgs
             $p = Start-Process -FilePath $exePath -ArgumentList $argLine -PassThru `
                 -WorkingDirectory (Split-Path -Parent $exePath)
         }
@@ -397,8 +497,8 @@ try {
             $c = (Read-RunRow $job.Out).Split(',')
             $focusNote = ''
             if ($c[14] -eq '1') { $focusNote = '  ODAK KAYBI'; $focusCount++ }
-            Write-Host ("OK  {0,9} ms  {1,13:N0} B  {2} {3}x{4}  ({5:N0} s){6}" -f `
-                $c[5], [int64]$c[7], $c[8], $c[9], $c[10], $secs, $focusNote) `
+            Write-Host ("OK  {0,9} ms  {1,13:N0} B  {2} {3}x{4} {5}  ({6:N0} s){7}" -f `
+                $c[5], [int64]$c[7], $c[8], $c[9], $c[10], $c[15], $secs, $focusNote) `
                 -ForegroundColor $(if ($focusNote) { 'Yellow' } else { 'Green' })
             $okCount++
         }

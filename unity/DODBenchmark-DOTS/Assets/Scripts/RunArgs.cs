@@ -14,6 +14,8 @@ using System.Globalization;
 ///   parity   : dort konfigurasyonda esit goruntu/render kosullari
 /// --dots-pipeline original | lean (yalnizca Unity DOTS; varsayilan profile gore:
 ///   published -> original, parity -> lean)
+/// --graphics-api d3d11 | d3d12 (beklenen grafik API'si; Unity'de -force-d3d11/12
+///   ile birlikte verilir). Varsayilan: parity -> d3d12, published -> kontrol yok.
 ///
 /// --n verilmezse Unattended=false olur ve uygulama HUD ile manuel calisir.
 /// </summary>
@@ -29,11 +31,14 @@ public class RunArgs
     public float IdleDelay = 2f;     // testi baslatmadan once bosta bekleme (s)
     public string Profile = "parity";
     public string DotsPipelineArg;   // null = profilin varsayilani
+    public string GraphicsApiArg;    // null = profilin varsayilani
     public string Error;             // null degilse argumanlar gecersiz
 
     public bool IsParity => Profile == "parity";
     public int Seed => BaseSeed + RunIndex;
     public string DotsPipeline => DotsPipelineArg ?? (IsParity ? "lean" : "original");
+    /// <summary>Beklenen grafik API'si (d3d11 | d3d12) ya da null (published: kontrol yok).</summary>
+    public string ExpectedGraphicsApi => GraphicsApiArg ?? (IsParity ? "d3d12" : null);
 
     public static RunArgs Parse(string[] args)
     {
@@ -82,6 +87,16 @@ public class RunArgs
                 return r;
             }
             r.DotsPipelineArg = pipe;
+        }
+        if (map.TryGetValue("graphics-api", out string api))
+        {
+            api = api.ToLowerInvariant();
+            if (api != "d3d11" && api != "d3d12")
+            {
+                r.Error = $"Gecersiz --graphics-api degeri: '{api}' (d3d11 | d3d12)";
+                return r;
+            }
+            r.GraphicsApiArg = api;
         }
 
         if (!map.ContainsKey("n")) return r;

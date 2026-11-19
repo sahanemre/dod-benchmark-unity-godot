@@ -13,7 +13,8 @@ using UnityEngine.Rendering;
 /// Cikis kodlari:
 ///   0 basarili, 2 gecersiz arguman, 3 ornek yok, 4 bellek okunamadi,
 ///   5 yazma hatasi, 6 motor kurulumu basarisiz, 8 goruntu modu/cozunurluk
-///   beklenenden farkli, 9 gerekli shader yok, 10 build/API profille uyusmuyor.
+///   beklenenden farkli (test baslamadan uygulanamadi ya da olcum sirasinda
+///   degisti), 9 gerekli shader yok, 10 build/API profille uyusmuyor.
 /// </summary>
 public class S1RunSession
 {
@@ -29,6 +30,13 @@ public class S1RunSession
 
     private const float WarmupSeconds = 3f;
 
+    // Goruntu modu uygulanmadan olcume baslanmaz. Exclusive fullscreen'e gecis
+    // (ozellikle onceki kosudan kalan ekran ayarlariyla acilista) birkac saniye
+    // surebilir; bu sure boyunca test baslatilmaz, mod her 2 s'de yeniden
+    // istenir. 15 s icinde uygulanamazsa kosu cikis kodu 8 ile biter.
+    private const float DisplayWaitTimeout = 15f;
+    private const float DisplayReapplyInterval = 2f;
+
     public readonly RunArgs Args;
     private readonly string engine;
     private readonly string paradigm;
@@ -37,6 +45,9 @@ public class S1RunSession
     public int UnattendedIndex { get; private set; } = -1;
     public bool Started { get; private set; }
     private float idleTimer;
+    private float displayWait;
+    private float lastReapplyAt;
+    private string lastDisplayState;
 
     // Warmup sonunda bir kez kaydedilenler
     private bool snapshotTaken;
@@ -47,6 +58,7 @@ public class S1RunSession
     private bool displayOk;
 
     private bool focusLost;
+    private string graphicsApi;
 
     public S1RunSession(string engine, string paradigm, string logTag, string[] commandLine)
     {
@@ -70,21 +82,25 @@ public class S1RunSession
     /// </summary>
     public bool Setup(int[] entityCounts)
     {
+        graphicsApi = ApiName(SystemInfo.graphicsDeviceType);
         Debug.Log($"{logTag} profile={Args.Profile} display={DisplayProfile.Describe(Args.IsParity)} " +
                   $"graphics={SystemInfo.graphicsDeviceType} ({SystemInfo.graphicsDeviceVersion}) " +
                   $"developmentBuild={Debug.isDebugBuild} runInBackground={Application.runInBackground}");
+        Debug.Log($"{logTag} komut satiri: {string.Join(" ", System.Environment.GetCommandLineArgs())}");
+        lastDisplayState = DisplayProfile.CurrentState();
+        Debug.Log($"{logTag} goruntu (acilis): {lastDisplayState}");
 
         if (Args.Error != null) return Fail(ExitBadArgs, Args.Error);
         if (!Args.Unattended) return true;
 
-        if (Args.IsParity)
-        {
-            if (Debug.isDebugBuild)
-                return Fail(ExitBuildMismatch, "parity: development build olmamali (Build Profiles > Development Build kapali).");
-            if (SystemInfo.graphicsDeviceType != GraphicsDeviceType.Direct3D12)
-                return Fail(ExitBuildMismatch,
-                    $"parity: Direct3D12 bekleniyordu, aktif API {SystemInfo.graphicsDeviceType} (-force-d3d12 verildi mi?).");
-        }
+        if (Args.IsParity && Debug.isDebugBuild)
+            return Fail(ExitBuildMismatch, "parity: development build olmamali (Build Profiles > Development Build kapali).");
+
+        string expectedApi = Args.ExpectedGraphicsApi;
+        if (expectedApi != null && graphicsApi != expectedApi)
+            return Fail(ExitBuildMismatch,
+                $"{expectedApi} bekleniyordu, aktif API {SystemInfo.graphicsDeviceType} " +
+                $"(-force-{expectedApi} verildi mi, build'in Graphics API listesinde var mi?).");
 
         int index = System.Array.IndexOf(entityCounts, Args.N);
         if (index < 0) return Fail(ExitBadArgs, $"N={Args.N} entityCounts listesinde yok.");
@@ -104,14 +120,58 @@ public class S1RunSession
         return false;
     }
 
-    /// <summary>Bosta bekler; testi baslatma zamani geldiginde bir kez true doner.</summary>
+    /// <summary>
+    /// Bosta bekler; testi baslatma zamani geldiginde bir kez true doner.
+    /// Bekleme bittikten sonra goruntu modu/cozunurluk profille uyusana kadar
+    /// test BASLATILMAZ (olcum yanlis modda baslamasin). Durum degisiklikleri
+    /// loglanir; uyusmazlik surerse mod yeniden istenir, 15 s'de cikis kodu 8.
+    /// </summary>
     public bool TickIdle(float dt)
     {
         if (!WaitingToStart) return false;
+        LogDisplayChange("bekleme");
         idleTimer += dt;
         if (idleTimer < Args.IdleDelay) return false;
+
+        if (!DisplayProfile.Matches(Args.IsParity))
+        {
+            displayWait += dt;
+            if (displayWait - lastReapplyAt >= DisplayReapplyInterval)
+            {
+                lastReapplyAt = displayWait;
+                Debug.LogWarning($"{logTag} goruntu henuz uygun degil ({displayWait:F1} s): " +
+                                 $"{DisplayProfile.CurrentState()}; {DisplayProfile.Describe(Args.IsParity)} yeniden isteniyor.");
+                DisplayProfile.Apply(Args.IsParity);
+            }
+            if (displayWait >= DisplayWaitTimeout)
+                Fail(ExitDisplayMismatch,
+                    $"Goruntu {DisplayWaitTimeout:F0} s icinde uygulanamadi: beklenen {DisplayProfile.Describe(Args.IsParity)}, " +
+                    $"olculen {DisplayProfile.CurrentState()}.");
+            return false;
+        }
+
+        Debug.Log($"{logTag} goruntu hazir ({displayWait:F1} s ek bekleme): {DisplayProfile.CurrentState()}");
         Started = true;
         return true;
+    }
+
+    /// <summary>Goruntu durumu degistiyse loglar (yalnizca test baslamadan once).</summary>
+    private void LogDisplayChange(string phase)
+    {
+        string state = DisplayProfile.CurrentState();
+        if (state == lastDisplayState) return;
+        Debug.Log($"{logTag} goruntu degisti ({phase}): {lastDisplayState} -> {state}");
+        lastDisplayState = state;
+    }
+
+    private static string ApiName(GraphicsDeviceType t)
+    {
+        switch (t)
+        {
+            case GraphicsDeviceType.Direct3D11: return "d3d11";
+            case GraphicsDeviceType.Direct3D12: return "d3d12";
+            default: return t.ToString().ToLowerInvariant();
+        }
     }
 
     /// <summary>Test baslarken (spawn'dan once) cagrilir.</summary>
@@ -155,6 +215,8 @@ public class S1RunSession
         renderHeight = Screen.height;
         displayOk = DisplayProfile.Matches(Args.IsParity);
         snapshotTaken = true;
+        if (!displayOk)
+            Debug.LogError($"{logTag} goruntu olcum sirasinda degisti (warmup sonu): {DisplayProfile.CurrentState()}");
     }
 
     /// <summary>Kosunun sonu: tek satiri yazar ve uygulamayi kapatir.</summary>
@@ -175,7 +237,8 @@ public class S1RunSession
         else if (!displayOk)
         {
             Debug.LogError($"{logTag} Goruntu kosulu tutmuyor: beklenen {DisplayProfile.Describe(Args.IsParity)}, " +
-                           $"olculen {windowMode} {renderWidth}x{renderHeight}.");
+                           $"warmup sonunda olculen {windowMode} {renderWidth}x{renderHeight}, " +
+                           $"simdi {DisplayProfile.CurrentState()}.");
             exitCode = ExitDisplayMismatch;
         }
         else
@@ -197,6 +260,7 @@ public class S1RunSession
                 Profile = Args.Profile,
                 DotsPipeline = dotsPipeline,
                 FocusLost = focusLost,
+                GraphicsApi = graphicsApi,
             };
             try
             {

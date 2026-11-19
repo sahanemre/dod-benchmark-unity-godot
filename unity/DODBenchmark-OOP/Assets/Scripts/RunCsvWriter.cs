@@ -19,6 +19,7 @@ public class RunRecord
     public string Profile;           // published | parity
     public string DotsPipeline;      // original | lean | na
     public bool FocusLost;           // kosu sirasinda pencere odagi kaybedildi mi
+    public string GraphicsApi;       // gercekte kullanilan API: d3d11 | d3d12 | ...
 }
 
 /// <summary>
@@ -34,15 +35,15 @@ public static class RunCsvWriter
 {
     public const string Header =
         "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes," +
-        "window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost";
+        "window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost,graphics_api";
 
     public static string FormatRow(RunRecord r)
     {
         return string.Format(CultureInfo.InvariantCulture,
-            "{0},{1},{2},{3},{4},{5:F4},{6:F2},{7},{8},{9},{10},{11},{12},{13},{14}",
+            "{0},{1},{2},{3},{4},{5:F4},{6:F2},{7},{8},{9},{10},{11},{12},{13},{14},{15}",
             r.Engine, r.Paradigm, r.Scenario, r.N, r.RunIndex, r.MeanFrameTimeMs, r.MeanFps,
             r.PrivateBytes, r.WindowMode, r.RenderWidth, r.RenderHeight, r.DotsColor,
-            r.Profile, r.DotsPipeline, r.FocusLost ? 1 : 0);
+            r.Profile, r.DotsPipeline, r.FocusLost ? 1 : 0, r.GraphicsApi);
     }
 
     public static void Write(string path, RunRecord r)
