@@ -49,7 +49,8 @@ Her senaryo 1K, 5K, 10K, 50K, 100K entity ile test edilmektedir.
 │   ├── dod-benchmark-dod/       # Godot DOD (GDExtension C++)
 │   └── procmem/                 # Ortak OS bellek ölçüm eklentisi (private bytes)
 ├── tools/
-│   ├── run_s1.ps1               # S1 gözetimsiz koşu scripti (bkz. S1_CALISTIRMA.md)
+│   ├── run_s1.ps1               # S1/S2 gözetimsiz koşu scripti (bkz. S1_CALISTIRMA.md, S2_CALISTIRMA.md)
+│   ├── s2_reference/            # S2 çarpışma referans uygulaması (C) + beklenen çıktılar
 │   └── s1_builds.json           # Dört standalone exe'nin yolu
 ├── results/
 │   └── benchmarks/              # Benchmark sonuçları (CSV; S1 yeniden koşu: s1/)

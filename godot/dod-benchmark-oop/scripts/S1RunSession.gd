@@ -209,8 +209,9 @@ func after_timer_advance(test_timer: float, dt: float, window: Window) -> void:
 
 
 ## Kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+## collision_pairs_mean >= 0 ise (S2) CSV'ye 17. sutun olarak yazilir.
 func finish(stats: FrameStatistics, test_duration: float, dots_color: String,
-		dots_pipeline: String) -> void:
+		dots_pipeline: String, collision_pairs_mean: float = -1.0) -> void:
 	var code := EXIT_OK
 
 	if stats.get_sample_count() == 0:
@@ -229,7 +230,7 @@ func finish(stats: FrameStatistics, test_duration: float, dots_color: String,
 		var row := {
 			"engine": "godot",
 			"paradigm": _paradigm,
-			"scenario": "S1",
+			"scenario": args.scenario,
 			"N": args.n,
 			"run_index": args.run_index,
 			"mean_frame_time_ms": result.avg_frame_time,
@@ -244,6 +245,8 @@ func finish(stats: FrameStatistics, test_duration: float, dots_color: String,
 			"focus_lost": 1 if _focus_lost else 0,
 			"graphics_api": _driver,
 		}
+		if collision_pairs_mean >= 0.0:
+			row[RunCsvWriter.S2_COLUMN] = collision_pairs_mean
 		if RunCsvWriter.write(args.out_path, row):
 			print(_tag, " Kosu tamamlandi: ", RunCsvWriter.format_row(row))
 			if _focus_lost:

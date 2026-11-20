@@ -43,6 +43,13 @@ private:
 	// her frame yeniden kullanilir; surekli yeniden tahsis edilmez.
 	PackedFloat32Array buffer;
 
+	// S2 grid tamponlari: kare basina yeniden tahsis edilmez (counting sort).
+	std::vector<int> s2_cell_of;
+	std::vector<int> s2_cell_start;   // hucre sayisi + 1 (prefix sum)
+	std::vector<int> s2_cell_fill;
+	std::vector<int> s2_sorted;       // hucreye gore sirali entity indeksleri
+	int s2_last_responses = 0;
+
 protected:
 	static void _bind_methods();
 
@@ -65,6 +72,21 @@ public:
 	// RNG baslangic durumu (S1 parity: seed = 1000 + run_index). Hareket
 	// dongusunu etkilemez; yalnizca spawn'daki baslangic degerlerini belirler.
 	void set_seed(int64_t p_seed);
+
+	// ---- S2 (carpisma) -------------------------------------------------
+	// S1 metotlarina dokunulmaz; S2 hareket icin yine update() kullanir.
+
+	// S2 spawn: dort konfigurasyonda birebir ayni baslangic (ortak RNG, hiz
+	// (float)cos((double)aci) * hiz). Entity basina 6 RNG cekilisi: x, y, aci, r, g, b.
+	void spawn_s2(int p_count, float p_speed, Vector2 p_min, Vector2 p_max, int64_t p_seed);
+
+	// Broad-phase (uniform grid, counting sort) + narrow-phase + elastik tepki.
+	// Kesisen cift sayisini dondurur; tepki verilen cift sayisi get_last_responses().
+	int collide(Vector2 p_min, Vector2 p_max, float p_cell);
+	int get_last_responses() const;
+
+	// Dogrulama: O(N^2) kesisen cift sayisi (yalnizca sayar, hizlara dokunmaz).
+	int count_pairs_bruteforce(float p_cell) const;
 };
 
 } // namespace godot

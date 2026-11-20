@@ -37,6 +37,15 @@
     Unity grafik API'sinin etkisi (parity, yalnizca API degisir).
 
 .EXAMPLE
+    .\tools\run_s1.ps1 -Scenario S2 -Validate
+    S2 dogrulamasi: dort konfigurasyon, N=1000 ve 10000, 300 kare sabit dt;
+    referansla (tools/s2_reference) karsilastirma tablosu.
+
+.EXAMPLE
+    .\tools\run_s1.ps1 -Scenario S2
+    Tam S2 olcumu (parity, 4 konfigurasyon x 5 N x 10 tekrar) -> results\benchmarks\s2
+
+.EXAMPLE
     .\tools\run_s1.ps1 -Configs godot-oop -N 50000 -RunIndex 7 -Force
     Tek bir kosuyu yeniden alir.
 #>
@@ -83,15 +92,32 @@ param(
     [double]$IdleDelaySec = 2.0,
 
     [string]$BuildsFile,
-    [string]$OutDir
+    [string]$OutDir,
+
+    # S1: toplu hareket (varsayilan, davranisi degismedi). S2: carpisma (yalnizca parity).
+    [ValidateSet('S1', 'S2')]
+    [string]$Scenario = 'S1',
+
+    # Yalnizca S2: sabit dt ile deterministik dogrulama (her konfigurasyon, -N basina
+    # bir kosu; varsayilan N = 1000, 10000) ve karsilastirma tablosu.
+    [switch]$Validate,
+
+    [ValidateRange(10, 100000)]
+    [int]$Frames = 300
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$Scenario = $Scenario.ToUpperInvariant()
+$IsS2 = $Scenario -eq 'S2'
+if ($Validate -and -not $IsS2) { throw "-Validate yalnizca -Scenario S2 ile kullanilir." }
 if (-not $BuildsFile) { $BuildsFile = Join-Path $PSScriptRoot 's1_builds.json' }
-if (-not $OutDir)     { $OutDir = Join-Path $RepoRoot 'results\benchmarks\s1' }
+if (-not $OutDir) {
+    $sub = if ($Validate) { 's2_validate' } elseif ($IsS2) { 's2' } else { 's1' }
+    $OutDir = Join-Path $RepoRoot "results\benchmarks\$sub"
+}
 elseif (-not [System.IO.Path]::IsPathRooted($OutDir)) { $OutDir = Join-Path $RepoRoot $OutDir }
 
 $LogDir     = Join-Path $OutDir 'logs'
@@ -103,6 +129,15 @@ $HeaderV1   = 'engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,
               'window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost'
 $Header     = $HeaderV1 + ',graphics_api'
 $ColumnCount = 16
+if ($IsS2) {
+    # S2: ek sutun (olcum penceresinde kare basina ortalama kesisen cift)
+    $Header += ',collision_pairs_mean'
+    $ColumnCount = 17
+}
+# S2 Godot sahnesi (S1 sahnesine dokunulmaz)
+$GodotS2Scene = 'res://scenes/S2Main.tscn'
+# S2'de Godot OOP yuksek N'de cok yavas olabilir: varsayilan zaman asimi daha uzun
+if ($IsS2 -and -not $PSBoundParameters.ContainsKey('TimeoutSec')) { $TimeoutSec = 600 }
 $RunFileRx  = '^(unity-oop|unity-dots|godot-oop|godot-dod)_(published|parity)(_(original|lean))?(_(d3d11|d3d12))?_N\d+_run\d+\.csv$'
 
 $ValidConfigs   = @('unity-oop', 'unity-dots', 'godot-oop', 'godot-dod')
@@ -182,6 +217,10 @@ $Pipelines = Split-List $DotsPipeline
 Assert-InSet $Pipelines $ValidPipelines 'DotsPipeline'
 $Apis = Split-List $UnityApi
 Assert-InSet $Apis $ValidApis 'UnityApi'
+if ($IsS2 -and ($Profiles -contains 'published')) {
+    throw "S2 yalnizca parity profiliyle olculur (-Profile parity)."
+}
+if ($Validate -and -not $PSBoundParameters.ContainsKey('N')) { $N = @('1000', '10000') }
 $Counts = ConvertTo-IntList $N 'N'
 foreach ($count in $Counts) {
     if ($ValidCounts -notcontains $count) {
@@ -284,7 +323,7 @@ function Read-RunRow([string]$Path) {
     if ($lines.Count -ne 2) { return $null }
     $head = $lines[0].Trim()
     $row = $lines[1].Trim()
-    if ($head -eq $HeaderV1 -and $row.Split(',').Count -eq ($ColumnCount - 1)) {
+    if (-not $IsS2 -and $head -eq $HeaderV1 -and $row.Split(',').Count -eq ($ColumnCount - 1)) {
         return $row + ',' + (Get-ApiFromLog $Path)
     }
     if ($head -ne $Header) { return $null }
@@ -322,6 +361,66 @@ function Merge-Results {
     # UTF-8 (BOM'suz): analiz scriptleri ve Excel icin sorunsuz
     [System.IO.File]::WriteAllLines($MergedCsv, $out.ToArray(), (New-Object System.Text.UTF8Encoding($false)))
     Write-Host ("Birlestirildi: {0} satir -> {1}" -f $rows.Count, $MergedCsv)
+}
+
+# S2 dogrulama tablosu: dort konfigurasyon + referans (tools/s2_reference/expected).
+# Ciktisi ekrana ve validate_summary.txt dosyasina yazilir.
+function Show-ValidationTable {
+    $out = New-Object System.Collections.Generic.List[string]
+    foreach ($count in $Counts) {
+        $data = [ordered]@{}
+        $refFile = Join-Path $RepoRoot ("tools\s2_reference\expected\reference_N{0}_run01.csv" -f $count)
+        if (Test-Path -LiteralPath $refFile -PathType Leaf) { $data['referans'] = @(Import-Csv -LiteralPath $refFile) }
+        foreach ($cfg in $Configs) {
+            $f = Join-Path $OutDir ("validate_{0}_N{1}.csv" -f $cfg, $count)
+            if (Test-Path -LiteralPath $f -PathType Leaf) { $data[$cfg] = @(Import-Csv -LiteralPath $f) }
+        }
+        if ($data.Count -eq 0) { continue }
+        $baseName = @($data.Keys)[0]
+        $base = $data[$baseName]
+
+        $out.Add('')
+        $out.Add(("=== N = {0}: kare basina kesisen cift sayisi (pairs) ===" -f $count))
+        $hdr = '{0,6}' -f 'kare'
+        foreach ($k in $data.Keys) { $hdr += ' {0,11}' -f $k }
+        $out.Add($hdr)
+        foreach ($fr in @(1, 2, 5, 10, 25, 50, 100, 200, 300, 500, 1000)) {
+            if ($fr -gt $Frames) { continue }
+            $line = '{0,6}' -f $fr
+            foreach ($k in $data.Keys) {
+                $rows = $data[$k]
+                $line += ' {0,11}' -f $(if ($rows.Count -ge $fr) { $rows[$fr - 1].pairs } else { '-' })
+            }
+            $out.Add($line)
+        }
+
+        $out.Add('')
+        $out.Add(("--- N = {0}: '{1}' ile karsilastirma ---" -f $count, $baseName))
+        $out.Add(('{0,-11} {1,14} {2,9} {3,13} {4,13} {5,12}' -f 'konfig', 'ayni kare', 'ilk fark', 'max|d| 1-50', 'max|d| tumu', 'O(N^2) hata'))
+        foreach ($k in $data.Keys) {
+            if ($k -eq $baseName) { continue }
+            $rows = $data[$k]
+            $m = [Math]::Min($rows.Count, $base.Count)
+            $same = 0; $first = '-'; $max50 = 0; $maxAll = 0
+            for ($i = 0; $i -lt $m; $i++) {
+                $d = [Math]::Abs([int]$rows[$i].pairs - [int]$base[$i].pairs)
+                if ($d -eq 0 -and $rows[$i].responses -eq $base[$i].responses) { $same++ }
+                elseif ($first -eq '-') { $first = $i + 1 }
+                if ($i -lt 50 -and $d -gt $max50) { $max50 = $d }
+                if ($d -gt $maxAll) { $maxAll = $d }
+            }
+            $bf = '-'
+            if ($rows.Count -gt 0 -and $null -ne $rows[0].PSObject.Properties['pairs_bruteforce']) {
+                $bf = @($rows | Where-Object { $_.pairs -ne $_.pairs_bruteforce }).Count
+            }
+            $out.Add(('{0,-11} {1,14} {2,9} {3,13} {4,13} {5,12}' -f $k, ("{0}/{1}" -f $same, $m), $first, $max50, $maxAll, $bf))
+        }
+    }
+    $out.Add('')
+    $out.Add("ayni kare: pairs ve responses birebir ayni. O(N^2) hata: grid sonucunun brute-force'tan farkli oldugu kare (N <= 2000).")
+    foreach ($l in $out) { Write-Host $l }
+    [System.IO.File]::WriteAllLines((Join-Path $OutDir 'validate_summary.txt'), $out.ToArray(), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("Ozet: {0}" -f (Join-Path $OutDir 'validate_summary.txt'))
 }
 
 function Resolve-BuildPath([object]$Section, [string]$Key, [string]$What) {
@@ -382,6 +481,20 @@ if ($null -ne $RunIndices) { $indices = $RunIndices } else { $indices = @(1..$Ru
 
 $plan = New-Object System.Collections.Generic.List[object]
 $skipped = 0
+if ($Validate) {
+    # Dogrulama: her konfigurasyon ve N icin bir kosu (run_index 1), her seferinde yeniden
+    $indices = @()
+    foreach ($cfg in $Configs) {
+        foreach ($count in $Counts) {
+            $name = "validate_{0}_N{1}.csv" -f $cfg, $count
+            $pipe = (Get-PipelineVariants $cfg 'parity')[0]
+            $plan.Add([pscustomobject]@{
+                Config = $cfg; Profile = 'parity'; Pipeline = $pipe; Api = $null
+                Count = $count; Run = 1; Out = (Join-Path $OutDir $name); Name = $name; Validate = $true
+            })
+        }
+    }
+}
 foreach ($k in $indices) {
     foreach ($cfg in $Configs) {
         foreach ($count in $Counts) {
@@ -393,7 +506,7 @@ foreach ($k in $indices) {
                         if (-not $Force -and $null -ne (Read-RunRow $file)) { $skipped++; continue }
                         $plan.Add([pscustomobject]@{
                             Config = $cfg; Profile = $prof; Pipeline = $pipe; Api = $api
-                            Count = $count; Run = $k; Out = $file; Name = $name
+                            Count = $count; Run = $k; Out = $file; Name = $name; Validate = $false
                         })
                     }
                 }
@@ -406,7 +519,7 @@ foreach ($k in $indices) {
 $perRun = 6 + $IdleDelaySec + 13 + $CooldownSec
 Write-Host ("Planlanan kosu: {0} | atlanan (zaten var): {1} | tahmini sure: ~{2:N0} dk" -f `
     $plan.Count, $skipped, ($plan.Count * $perRun / 60))
-Write-Host "Sonuclar: $OutDir"
+Write-Host "Senaryo: $Scenario$(if ($Validate) { ' (dogrulama, ' + $Frames + ' kare)' }) | Sonuclar: $OutDir"
 if ($plan.Count -eq 0) {
     Merge-Results
     return
@@ -451,6 +564,8 @@ try {
         $appArgs = '--profile={0} --n={1} --run-index={2} --idle-delay={3} --out="{4}"' -f `
             $job.Profile, $job.Count, $job.Run, $idleArg, $outArg
         if ($job.Pipeline) { $appArgs += " --dots-pipeline=$($job.Pipeline)" }
+        if ($IsS2) { $appArgs += ' --scenario=S2' }
+        if ($job.Validate) { $appArgs += " --validate --frames=$Frames" }
 
         if ($EngineOf[$job.Config] -eq 'unity') {
             # Onceki kosudan kalan ekran ayarlari bu kosuyu etkilemesin
@@ -466,8 +581,9 @@ try {
                 -WorkingDirectory (Split-Path -Parent $exePath)
         }
         else {
-            # Godot kullanici argumanlari "--" sonrasina gelir
+            # Godot kullanici argumanlari "--" sonrasina gelir; S2 ayri sahnede
             $argLine = '-- ' + $appArgs
+            if ($IsS2) { $argLine = "--scene $GodotS2Scene " + $argLine }
             $p = Start-Process -FilePath $exePath -ArgumentList $argLine -PassThru `
                 -WorkingDirectory (Split-Path -Parent $exePath) `
                 -RedirectStandardOutput "$logBase.out.log" -RedirectStandardError "$logBase.err.log"
@@ -487,13 +603,22 @@ try {
                 $desc = if ($ExitCodeText.ContainsKey([int]$code)) { $ExitCodeText[[int]$code] } else { 'beklenmeyen hata / cokme' }
                 $reason = "cikis kodu $code ($desc)"
             }
+            elseif ($job.Validate) {
+                $lineCount = if (Test-Path -LiteralPath $job.Out) { @(Get-Content -LiteralPath $job.Out | Where-Object { $_.Trim() -ne '' }).Count } else { 0 }
+                if ($lineCount -ne $Frames + 1) { $reason = "cikis kodu 0 ama dogrulama dosyasi eksik ($lineCount satir, beklenen $($Frames + 1))" }
+            }
             elseif ($null -eq (Read-RunRow $job.Out)) {
                 $reason = 'cikis kodu 0 ama gecerli sonuc dosyasi yok'
             }
         }
 
         $secs = ((Get-Date) - $t0).TotalSeconds
-        if ($null -eq $reason) {
+        if ($null -eq $reason -and $job.Validate) {
+            $last = (@(Get-Content -LiteralPath $job.Out))[-1]
+            Write-Host ("OK  dogrulama: {0} kare, son kare (frame,pairs,responses): {1}  ({2:N0} s)" -f $Frames, $last, $secs) -ForegroundColor Green
+            $okCount++
+        }
+        elseif ($null -eq $reason) {
             $c = (Read-RunRow $job.Out).Split(',')
             $focusNote = ''
             if ($c[14] -eq '1') { $focusNote = '  ODAK KAYBI'; $focusCount++ }
@@ -531,6 +656,6 @@ if ($failCount -gt 0) {
     Write-Host "Yeniden denemek icin ayni komutu tekrar calistirin (eksik kosular alinir)." -ForegroundColor Yellow
 }
 
-Merge-Results
+if ($Validate) { Show-ValidationTable } else { Merge-Results }
 
 if ($failCount -gt 0) { exit 1 }

@@ -12,12 +12,22 @@ const HEADER := "engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fp
 const COLUMNS := ["engine", "paradigm", "scenario", "N", "run_index", "mean_frame_time_ms",
 	"mean_fps", "process_private_bytes", "window_mode", "render_width", "render_height",
 	"dots_color", "profile", "dots_pipeline", "focus_lost", "graphics_api"]
+## S2: ek sutun. Satirda bu anahtar varsa baslik ve satir 17 sutun olur;
+## yoksa (S1) cikti eskisiyle birebir aynidir.
+const S2_COLUMN := "collision_pairs_mean"
+
+
+static func header_for(row: Dictionary) -> String:
+	return HEADER + ("," + S2_COLUMN if row.has(S2_COLUMN) else "")
 
 
 ## Satiri sutun sirasina gore bicimlendirir; eksik sutun varsa "" doner.
 static func format_row(row: Dictionary) -> String:
 	var parts := PackedStringArray()
-	for col in COLUMNS:
+	var cols: Array = COLUMNS.duplicate()
+	if row.has(S2_COLUMN):
+		cols.append(S2_COLUMN)
+	for col in cols:
 		if not row.has(col):
 			push_error("[Benchmark] CSV sutunu eksik: " + col)
 			return ""
@@ -25,7 +35,7 @@ static func format_row(row: Dictionary) -> String:
 		match col:
 			"mean_frame_time_ms":
 				parts.append("%.4f" % v)
-			"mean_fps":
+			"mean_fps", "collision_pairs_mean":
 				parts.append("%.2f" % v)
 			_:
 				parts.append(str(v))
@@ -50,7 +60,7 @@ static func write(path: String, row: Dictionary) -> bool:
 	if f == null:
 		push_error("[Benchmark] Dosya acilamadi: %s (hata %d)" % [tmp, FileAccess.get_open_error()])
 		return false
-	f.store_string(HEADER + "\n" + line + "\n")
+	f.store_string(header_for(row) + "\n" + line + "\n")
 	f.close()
 
 	if FileAccess.file_exists(path):

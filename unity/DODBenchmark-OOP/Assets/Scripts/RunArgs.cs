@@ -16,6 +16,9 @@ using System.Globalization;
 ///   published -> original, parity -> lean)
 /// --graphics-api d3d11 | d3d12 (beklenen grafik API'si; Unity'de -force-d3d11/12
 ///   ile birlikte verilir). Varsayilan: parity -> d3d12, published -> kontrol yok.
+/// --scenario S1 | S2 (varsayilan S1; S2'de S2Bootstrap S1 yoneticisini devre disi birakir)
+/// --validate         (S2: sabit dt ile deterministik dogrulama kosusu)
+/// --frames <k>       (dogrulama kare sayisi, varsayilan 300)
 ///
 /// --n verilmezse Unattended=false olur ve uygulama HUD ile manuel calisir.
 /// </summary>
@@ -32,6 +35,9 @@ public class RunArgs
     public string Profile = "parity";
     public string DotsPipelineArg;   // null = profilin varsayilani
     public string GraphicsApiArg;    // null = profilin varsayilani
+    public string Scenario = "S1";
+    public bool Validate;
+    public int Frames = 300;
     public string Error;             // null degilse argumanlar gecersiz
 
     public bool IsParity => Profile == "parity";
@@ -87,6 +93,26 @@ public class RunArgs
                 return r;
             }
             r.DotsPipelineArg = pipe;
+        }
+        if (map.TryGetValue("scenario", out string sc))
+        {
+            sc = sc.ToUpperInvariant();
+            if (sc != "S1" && sc != "S2")
+            {
+                r.Error = $"Gecersiz --scenario degeri: '{sc}' (S1 | S2)";
+                return r;
+            }
+            r.Scenario = sc;
+        }
+        if (map.ContainsKey("validate"))
+            r.Validate = true;
+        if (map.TryGetValue("frames", out string fr))
+        {
+            if (!int.TryParse(fr, NumberStyles.Integer, ci, out r.Frames) || r.Frames <= 0)
+            {
+                r.Error = $"Gecersiz --frames degeri: '{fr}'";
+                return r;
+            }
         }
         if (map.TryGetValue("graphics-api", out string api))
         {
