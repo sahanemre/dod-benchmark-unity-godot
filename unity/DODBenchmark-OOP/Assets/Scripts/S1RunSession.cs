@@ -219,8 +219,12 @@ public class S1RunSession
             Debug.LogError($"{logTag} goruntu olcum sirasinda degisti (warmup sonu): {DisplayProfile.CurrentState()}");
     }
 
-    /// <summary>Kosunun sonu: tek satiri yazar ve uygulamayi kapatir.</summary>
-    public void Finish(FrameStatistics stats, float testDuration, string dotsColor, string dotsPipeline)
+    /// <summary>
+    /// Kosunun sonu: tek satiri yazar ve uygulamayi kapatir.
+    /// collisionPairsMean yalnizca S2'de verilir (17. sutun); S1 ciktisi degismez.
+    /// </summary>
+    public void Finish(FrameStatistics stats, float testDuration, string dotsColor, string dotsPipeline,
+        double? collisionPairsMean = null)
     {
         int exitCode = ExitOk;
 
@@ -248,6 +252,7 @@ public class S1RunSession
             {
                 Engine = engine,
                 Paradigm = paradigm,
+                Scenario = Args.Scenario,
                 N = Args.N,
                 RunIndex = Args.RunIndex,
                 MeanFrameTimeMs = result.AvgFrameTime,
@@ -261,6 +266,7 @@ public class S1RunSession
                 DotsPipeline = dotsPipeline,
                 FocusLost = focusLost,
                 GraphicsApi = graphicsApi,
+                CollisionPairsMean = collisionPairsMean,
             };
             try
             {

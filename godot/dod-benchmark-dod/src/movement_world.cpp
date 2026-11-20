@@ -2,6 +2,7 @@
 
 #include <godot_cpp/core/class_db.hpp>
 
+#include <algorithm>
 #include <cmath>
 
 using namespace godot;
@@ -115,6 +116,130 @@ void MovementWorld::clear() {
 	buffer.resize(0);
 }
 
+// --- S2: carpisma -------------------------------------------------------------
+// Algoritma tools/s2_reference/s2_reference.c ile birebir ayni (islem sirasi dahil).
+
+void MovementWorld::spawn_s2(int p_count, float p_speed, Vector2 p_min, Vector2 p_max, int64_t p_seed) {
+	set_seed(p_seed);
+	entity_count = p_count < 0 ? 0 : p_count;
+
+	pos_x.resize(entity_count);
+	pos_y.resize(entity_count);
+	vel_x.resize(entity_count);
+	vel_y.resize(entity_count);
+	col_r.resize(entity_count);
+	col_g.resize(entity_count);
+	col_b.resize(entity_count);
+
+	const float two_pi = 6.28318530718f;
+	for (int i = 0; i < entity_count; ++i) {
+		pos_x[i] = range_float(p_min.x, p_max.x);
+		pos_y[i] = range_float(p_min.y, p_max.y);
+		float angle = range_float(0.0f, two_pi);
+		// Dort dilde ayni sonuc icin cos/sin double'da hesaplanip float'a cevrilir.
+		vel_x[i] = static_cast<float>(std::cos(static_cast<double>(angle))) * p_speed;
+		vel_y[i] = static_cast<float>(std::sin(static_cast<double>(angle))) * p_speed;
+		col_r[i] = range_float(0.3f, 1.0f);
+		col_g[i] = range_float(0.3f, 1.0f);
+		col_b[i] = range_float(0.3f, 1.0f);
+	}
+}
+
+int MovementWorld::collide(Vector2 p_min, Vector2 p_max, float p_cell) {
+	const float min_x = p_min.x;
+	const float min_y = p_min.y;
+	const int cols = static_cast<int>(std::ceil((p_max.x - p_min.x) / p_cell));
+	const int rows = static_cast<int>(std::ceil((p_max.y - p_min.y) / p_cell));
+	const int ncells = cols * rows;
+	const float d2_max = p_cell * p_cell; // (2r)^2, hucre = 2r
+	const int n = entity_count;
+
+	if (static_cast<int>(s2_cell_of.size()) < n) {
+		s2_cell_of.resize(n);
+		s2_sorted.resize(n);
+	}
+	if (static_cast<int>(s2_cell_start.size()) != ncells + 1) {
+		s2_cell_start.resize(ncells + 1);
+		s2_cell_fill.resize(ncells);
+	}
+
+	// Broad-phase: counting sort (sayim -> prefix sum -> indeks dizisi)
+	std::fill(s2_cell_start.begin(), s2_cell_start.end(), 0);
+	for (int i = 0; i < n; ++i) {
+		int cx = static_cast<int>((pos_x[i] - min_x) / p_cell);
+		int cy = static_cast<int>((pos_y[i] - min_y) / p_cell);
+		cx = cx < 0 ? 0 : (cx >= cols ? cols - 1 : cx);
+		cy = cy < 0 ? 0 : (cy >= rows ? rows - 1 : cy);
+		const int c = cy * cols + cx;
+		s2_cell_of[i] = c;
+		s2_cell_start[c + 1]++;
+	}
+	for (int c = 0; c < ncells; ++c) {
+		s2_cell_start[c + 1] += s2_cell_start[c];
+	}
+	std::copy(s2_cell_start.begin(), s2_cell_start.begin() + ncells, s2_cell_fill.begin());
+	for (int i = 0; i < n; ++i) {
+		s2_sorted[s2_cell_fill[s2_cell_of[i]]++] = i;
+	}
+
+	// Narrow-phase + tepki: kendi hucresi + 8 komsu, j > i, Gauss-Seidel
+	int pairs = 0;
+	int responses = 0;
+	for (int i = 0; i < n; ++i) {
+		const int ci = s2_cell_of[i];
+		const int cx = ci % cols;
+		const int cy = ci / cols;
+		for (int ny = cy - 1; ny <= cy + 1; ++ny) {
+			if (ny < 0 || ny >= rows) continue;
+			for (int nx = cx - 1; nx <= cx + 1; ++nx) {
+				if (nx < 0 || nx >= cols) continue;
+				const int c = ny * cols + nx;
+				const int end = s2_cell_start[c + 1];
+				for (int k = s2_cell_start[c]; k < end; ++k) {
+					const int j = s2_sorted[k];
+					if (j <= i) continue;
+					const float dx = pos_x[j] - pos_x[i];
+					const float dy = pos_y[j] - pos_y[i];
+					const float d2 = dx * dx + dy * dy;
+					if (d2 >= d2_max) continue;
+					pairs++;
+					const float rvx = vel_x[j] - vel_x[i];
+					const float rvy = vel_y[j] - vel_y[i];
+					const float dot = rvx * dx + rvy * dy;
+					if (dot < 0.0f && d2 > 0.0f) {
+						// esit kutle, elastik: normal bilesenler degis tokus
+						const float f = dot / d2;
+						vel_x[i] += f * dx;
+						vel_y[i] += f * dy;
+						vel_x[j] -= f * dx;
+						vel_y[j] -= f * dy;
+						responses++;
+					}
+				}
+			}
+		}
+	}
+	s2_last_responses = responses;
+	return pairs;
+}
+
+int MovementWorld::get_last_responses() const {
+	return s2_last_responses;
+}
+
+int MovementWorld::count_pairs_bruteforce(float p_cell) const {
+	const float d2_max = p_cell * p_cell;
+	int pairs = 0;
+	for (int i = 0; i < entity_count; ++i) {
+		for (int j = i + 1; j < entity_count; ++j) {
+			const float dx = pos_x[j] - pos_x[i];
+			const float dy = pos_y[j] - pos_y[i];
+			if (dx * dx + dy * dy < d2_max) pairs++;
+		}
+	}
+	return pairs;
+}
+
 void MovementWorld::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("spawn", "count", "speed", "screen_min", "screen_max"), &MovementWorld::spawn);
 	ClassDB::bind_method(D_METHOD("update", "delta", "screen_min", "screen_max"), &MovementWorld::update);
@@ -122,4 +247,8 @@ void MovementWorld::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_count"), &MovementWorld::get_count);
 	ClassDB::bind_method(D_METHOD("clear"), &MovementWorld::clear);
 	ClassDB::bind_method(D_METHOD("set_seed", "seed"), &MovementWorld::set_seed);
+	ClassDB::bind_method(D_METHOD("spawn_s2", "count", "speed", "world_min", "world_max", "seed"), &MovementWorld::spawn_s2);
+	ClassDB::bind_method(D_METHOD("collide", "world_min", "world_max", "cell"), &MovementWorld::collide);
+	ClassDB::bind_method(D_METHOD("get_last_responses"), &MovementWorld::get_last_responses);
+	ClassDB::bind_method(D_METHOD("count_pairs_bruteforce", "cell"), &MovementWorld::count_pairs_bruteforce);
 }

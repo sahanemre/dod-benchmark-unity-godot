@@ -12,6 +12,9 @@ class_name RunArgs extends RefCounted
 ##   parity   : dort konfigurasyonda esit goruntu/render kosullari
 ## --dots-pipeline original | lean  (yalnizca Unity DOTS'ta anlamli; burada
 ##   kabul edilir ve yok sayilir, CSV'ye "na" yazilir)
+## --scenario S1 | S2  (varsayilan S1; S2 ayri sahnede: --scene res://scenes/S2Main.tscn)
+## --validate          (S2: sabit dt ile deterministik dogrulama kosusu)
+## --frames <k>        (dogrulama kare sayisi, varsayilan 300)
 ##
 ## --n verilmezse unattended=false olur ve uygulama HUD ile manuel calisir.
 
@@ -24,6 +27,9 @@ var run_index: int = 0        ## tekrar numarasi (1..R); manuel modda 0
 var out_path: String = ""     ## tek satirlik CSV'nin yazilacagi dosya
 var idle_delay: float = 2.0   ## testi baslatmadan once bosta bekleme (s)
 var profile: String = "parity"
+var scenario: String = "S1"
+var validate: bool = false
+var frames: int = 300
 var error: String = ""        ## bos degilse argumanlar gecersiz
 
 
@@ -62,6 +68,20 @@ static func parse(args: PackedStringArray) -> RunArgs:
 			r.error = "Gecersiz --profile degeri: '%s' (published | parity)" % prof
 			return r
 		r.profile = prof
+	if map.has("scenario"):
+		var sc := String(map["scenario"]).to_upper()
+		if sc != "S1" and sc != "S2":
+			r.error = "Gecersiz --scenario degeri: '%s' (S1 | S2)" % sc
+			return r
+		r.scenario = sc
+	if map.has("validate"):
+		r.validate = true
+	if map.has("frames"):
+		var fr := String(map["frames"])
+		if not fr.is_valid_int() or fr.to_int() <= 0:
+			r.error = "Gecersiz --frames degeri: '%s'" % fr
+			return r
+		r.frames = fr.to_int()
 	if map.has("dots-pipeline"):
 		var pipe := String(map["dots-pipeline"]).to_lower()
 		if pipe != "original" and pipe != "lean":
