@@ -1,0 +1,9 @@
+engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost
+godot,dod,S1,1000,1,1.5125,661.14,264744960,exclusive,1920,1080,na,parity,na,0
+godot,oop,S1,1000,1,1.8123,551.79,268181504,exclusive,1920,1080,na,parity,na,0
+unity,dod,S1,1000,1,2.2551,443.43,1005649920,exclusive,1920,1080,on,parity,lean,0
+unity,oop,S1,1000,1,1.8481,541.10,840769536,exclusive,1920,1080,na,parity,na,0
+godot,dod,S1,1000,1,0.9208,1086.03,285319168,windowed,1280,720,na,published,na,0
+godot,oop,S1,1000,1,1.3834,722.86,287346688,windowed,1280,720,na,published,na,0
+unity,dod,S1,1000,1,2.5948,385.39,683765760,borderless,1920,1080,off,published,original,0
+unity,oop,S1,1000,1,1.6530,604.96,510914560,borderless,1920,1080,na,published,na,0

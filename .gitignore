@@ -43,6 +43,7 @@ godot/*/bin/*.dylib
 godot/*/bin/*.wasm
 *.o
 *.obj
+!godot/dod-benchmark-dod/godot-cpp
 
 # ===== IDE =====
 .vs/
@@ -64,3 +65,5 @@ venv/
 results/benchmarks/*.png
 results/benchmarks/*.pdf
 !results/benchmarks/*.csv
+# S1 gozetimsiz kosu: uygulama loglari repoya eklenmez (CSV'ler ve failures.log eklenir)
+results/benchmarks/*/logs/

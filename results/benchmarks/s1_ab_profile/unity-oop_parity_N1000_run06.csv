@@ -1,0 +1,2 @@
+engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost,graphics_api
+unity,oop,S1,1000,6,1.9883,502.94,840638464,exclusive,1920,1080,na,parity,na,0,d3d12

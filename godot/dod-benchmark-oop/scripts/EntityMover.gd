@@ -9,6 +9,11 @@ var screen_min: Vector2 = Vector2.ZERO
 var screen_max: Vector2 = Vector2.ZERO
 var _color: Color = Color.WHITE
 
+## Cizim boyutu (mantiksal px), tum entity'ler icin ortak. Yalnizca gorunum;
+## hareket/sekme mantigi entity'yi nokta olarak ele alir. published: 8 (makale),
+## parity: 6,75 (ekranda Unity ile ayni boyut). Yonetici spawn'dan once ayarlar.
+static var draw_size: float = 8.0
+
 
 func initialize(speed: float, s_min: Vector2, s_max: Vector2) -> void:
 	screen_min = s_min
@@ -34,4 +39,5 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(-4.0, -4.0, 8.0, 8.0), _color)
+	var half := draw_size * 0.5
+	draw_rect(Rect2(-half, -half, draw_size, draw_size), _color)

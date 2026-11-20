@@ -1,0 +1,7 @@
+engine,paradigm,scenario,N,run_index,mean_frame_time_ms,mean_fps,process_private_bytes,window_mode,render_width,render_height,dots_color,profile,dots_pipeline,focus_lost,graphics_api
+unity,dod,S1,1000,1,2.2857,437.51,1002455040,exclusive,1920,1080,on,parity,lean,0,d3d12
+unity,dod,S1,1000,2,2.2803,438.54,1006718976,exclusive,1920,1080,on,parity,lean,0,d3d12
+unity,dod,S1,1000,3,2.3000,434.78,1007759360,exclusive,1920,1080,on,parity,lean,0,d3d12
+unity,oop,S1,1000,1,2.0681,483.54,842452992,exclusive,1920,1080,na,parity,na,0,d3d12
+unity,oop,S1,1000,2,2.0550,486.62,841314304,exclusive,1920,1080,na,parity,na,0,d3d12
+unity,oop,S1,1000,3,2.0539,486.87,842051584,exclusive,1920,1080,na,parity,na,0,d3d12

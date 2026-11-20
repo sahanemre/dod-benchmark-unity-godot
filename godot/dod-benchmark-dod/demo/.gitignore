@@ -1,0 +1,14 @@
+# Godot 4 editor onbellegi
+.godot/
+
+# Ice aktarilmis kaynaklar
+*.translation
+
+# Derlenmis native eklenti binary'leri (.gdextension korunur)
+bin/*.dll
+bin/*.so
+bin/*.dylib
+bin/*.lib
+bin/*.exp
+bin/*.pdb
+bin/*.framework/

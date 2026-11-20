@@ -1,0 +1,6 @@
+# C++ derleme ciktilari (eklenti godot/dod-benchmark-dod/SConstruct ile derlenir;
+# nesne dosyalari kaynaklarin yanina yazilir, binary commit edilmez)
+*.os
+*.obj
+*.o
+*.pdb

@@ -1,0 +1,15 @@
+{
+  "published": {
+    "unity-oop":  "%USERPROFILE%/Documents/s1-builds/unity-oop/DODBenchmark-OOP.exe",
+    "unity-dots": "%USERPROFILE%/Documents/s1-builds/unity-dots/DODBenchmark-DOTS.exe",
+    "godot-oop":  "%USERPROFILE%/Documents/s1-builds/godot-oop-debug/dod-benchmark-oop.exe",
+    "godot-dod":  "%USERPROFILE%/Documents/s1-builds/godot-dod-debug/dod-benchmark-dod (native C++).exe"
+  },
+  "parity": {
+    "unity-oop":  "%USERPROFILE%/Documents/s1-builds/unity-oop/DODBenchmark-OOP.exe",
+    "unity-dots": "%USERPROFILE%/Documents/s1-builds/unity-dots/DODBenchmark-DOTS.exe",
+    "godot-oop":  "%USERPROFILE%/Documents/s1-builds/godot-oop-release/dod-benchmark-oop.exe",
+    "godot-dod":  "%USERPROFILE%/Documents/s1-builds/godot-dod-release/dod-benchmark-dod (native C++).exe"
+  },
+  "published_godot_dod_reference_dll": "%USERPROFILE%/Documents/s1-builds/_paper-reference/libmovementdod.windows.template_debug.x86_64.dll"
+}
